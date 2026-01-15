@@ -1,0 +1,39 @@
+backend/
+├── package.json
+├── .env
+└── src/
+    ├── server.js
+    ├── app.js
+
+    ├── config/
+    │   ├── db.js
+    │   └── socket.js
+
+    ├── models/
+    │   ├── User.model.js
+    │   ├── Chat.model.js
+    │   └── Message.model.js
+
+    ├── controllers/
+    │   ├── auth.controller.js
+    │   ├── user.controller.js
+    │   ├── chat.controller.js
+    │   └── message.controller.js
+
+    ├── routes/
+    │   ├── auth.routes.js
+    │   ├── user.routes.js
+    │   ├── chat.routes.js
+    │   └── message.routes.js
+
+    ├── middlewares/
+    │   ├── auth.middleware.js
+    │   └── error.middleware.js
+
+    ├── sockets/
+    │   ├── index.js
+    │   ├── message.socket.js
+    │   └── typing.socket.js
+
+    └── utils/
+        └── generateToken.js
