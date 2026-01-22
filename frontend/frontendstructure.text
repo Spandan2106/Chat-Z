@@ -1,0 +1,29 @@
+frontend/
+├── package.json
+└── src/
+    ├── main.jsx
+    ├── App.jsx
+    ├── api/
+    │   └── axios.js
+    ├── context/
+    │   ├── AuthContext.jsx
+    │   └── ChatContext.jsx
+    ├── crypto/
+    │   ├── keygen.js
+    │   ├── encrypt.js
+    │   └── decrypt.js
+    ├── socket/
+    │   └── socket.js
+    ├── pages/
+    │   ├── Login.jsx
+    │   ├── Register.jsx
+    │   ├── Users.jsx
+    │   └── Chat.jsx
+    ├── components/
+    │   ├── ChatList.jsx
+    │   ├── MessageList.jsx
+    │   ├── MessageInput.jsx
+    │   ├── GroupCreate.jsx
+    │   └── UserActions.jsx
+    └── styles/
+        └── app.css

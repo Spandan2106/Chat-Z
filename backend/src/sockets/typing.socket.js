@@ -1,9 +1,9 @@
 module.exports = (io, socket) => {
-  socket.on("typing", ({ receiverId }) => {
-    socket.to(receiverId).emit("typing");
+  socket.on("typing", (room) => {
+    socket.in(room).emit("typing", room);
   });
 
-  socket.on("stop-typing", ({ receiverId }) => {
-    socket.to(receiverId).emit("stop-typing");
+  socket.on("stop typing", (room) => {
+    socket.in(room).emit("stop typing", room);
   });
 };

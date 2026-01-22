@@ -1,4 +1,5 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "../.env") });
 const http = require("http");
 const app = require("./app");
 const connectDB = require("./config/db");
@@ -19,5 +20,6 @@ const io = require("socket.io")(server, {
 setupSocket(io);
 
 server.listen(process.env.PORT, () =>
-  console.log("Server running on port", process.env.PORT)
+  console.log("Server running on port", process.env.PORT),
+  console.log("server is running at : http://localhost:" + process.env.PORT)
 );
