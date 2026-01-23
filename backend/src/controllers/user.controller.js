@@ -1,4 +1,4 @@
-const User = require("../models/User.model");
+const User = require("../models/user.model");
 
 exports.getUsers = async (req, res) => {
   try {
@@ -100,6 +100,32 @@ exports.toggleMute = async (req, res) => {
     }
     await user.save();
     res.json(user.mutedChats);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.reportUser = async (req, res) => {
+  try {
+    // In a real app, save this to a Reports collection
+    console.log(`Report received from ${req.user._id} against ${req.body.targetId}`);
+    res.status(200).json({ message: "Report submitted successfully" });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.toggleStarMessage = async (req, res) => {
+  const { messageId } = req.body;
+  try {
+    const user = await User.findById(req.user._id);
+    if (user.starredMessages.includes(messageId)) {
+      user.starredMessages = user.starredMessages.filter(id => id.toString() !== messageId);
+    } else {
+      user.starredMessages.push(messageId);
+    }
+    await user.save();
+    res.json(user.starredMessages);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

@@ -1,5 +1,5 @@
 const router = require("express").Router();
-const { getUsers, updateProfile, deleteUser, addContact, getContacts, blockUser, unblockUser, getBlockedUsers, toggleMute } = require("../controllers/user.controller");
+const { getUsers, updateProfile, deleteUser, addContact, getContacts, blockUser, unblockUser, getBlockedUsers, toggleMute, reportUser, toggleStarMessage } = require("../controllers/user.controller");
 const protect = require("../middlewares/auth.middleware");
 const admin = require("../middlewares/admin.middleware");
 
@@ -10,6 +10,8 @@ router.put("/addcontact", protect, addContact);
 router.put("/block", protect, blockUser);
 router.put("/unblock", protect, unblockUser);
 router.put("/mute", protect, toggleMute);
+router.put("/star", protect, toggleStarMessage);
+router.post("/report", protect, reportUser);
 router.put("/profile", protect, updateProfile);
 router.delete("/:id", protect, deleteUser);
 

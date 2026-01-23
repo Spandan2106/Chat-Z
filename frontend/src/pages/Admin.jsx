@@ -23,30 +23,67 @@ export default function Admin() {
   };
 
   return (
-    <div className="app-container" style={{ flexDirection: "column", alignItems: "center", paddingTop: "50px" }}>
-      <div style={{ width: "100%", maxWidth: "800px", background: "#fff", padding: "20px", borderRadius: "10px", boxShadow: "0 2px 5px rgba(0,0,0,0.1)" }}>
-        <button onClick={() => navigate("/users")} style={{ marginBottom: "20px", background: "none", border: "none", cursor: "pointer", fontSize: "16px" }}>← Back</button>
-        <h2 style={{ color: "#00a884", marginBottom: "20px" }}>Admin Panel - Manage Users</h2>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+    <div className="admin-container">
+      <button 
+        onClick={() => navigate("/users")} 
+        className="profile-back-btn"
+        style={{ alignSelf: "flex-start", marginBottom: "20px" }}
+      >
+        ← Back
+      </button>
+      
+      <div className="admin-header">
+        <h1 className="admin-title">Admin Panel</h1>
+        <p className="admin-subtitle">Manage users and monitor system activity</p>
+      </div>
+
+      <div className="admin-stats">
+        <div className="admin-stat-card">
+          <div className="admin-stat-label">Total Users</div>
+          <div className="admin-stat-value">{users.length}</div>
+        </div>
+        <div className="admin-stat-card">
+          <div className="admin-stat-label">Active Users</div>
+          <div className="admin-stat-value">{users.filter(u => u.isActive).length}</div>
+        </div>
+        <div className="admin-stat-card">
+          <div className="admin-stat-label">Admins</div>
+          <div className="admin-stat-value">{users.filter(u => u.isAdmin).length}</div>
+        </div>
+      </div>
+
+      <div className="admin-table">
+        <table>
           <thead>
-            <tr style={{ borderBottom: "2px solid #e9edef", textAlign: "left" }}>
-              <th style={{ padding: "10px" }}>User</th>
-              <th style={{ padding: "10px" }}>Email</th>
-              <th style={{ padding: "10px" }}>Role</th>
-              <th style={{ padding: "10px" }}>Actions</th>
+            <tr>
+              <th>User</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {users.map((u) => (
-              <tr key={u._id} style={{ borderBottom: "1px solid #e9edef" }}>
-                <td style={{ padding: "10px", display: "flex", alignItems: "center", gap: "10px" }}>
-                  <img src={u.avatar || "https://via.placeholder.com/40"} style={{ width: "40px", height: "40px", borderRadius: "50%" }} alt={u.username} />
-                  {u.username}
+              <tr key={u._id}>
+                <td>
+                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                    <img 
+                      src={u.avatar || "https://via.placeholder.com/40"} 
+                      style={{ width: "40px", height: "40px", borderRadius: "50%", objectFit: "cover" }} 
+                      alt={u.username} 
+                    />
+                    <strong>{u.username}</strong>
+                  </div>
                 </td>
-                <td style={{ padding: "10px" }}>{u.email}</td>
-                <td style={{ padding: "10px" }}>{u.isAdmin ? "Admin" : "User"}</td>
-                <td style={{ padding: "10px" }}>
-                  <button onClick={() => handleDelete(u._id)} style={{ background: "#ff4d4d", color: "white", padding: "5px 10px", border: "none", borderRadius: "5px", cursor: "pointer" }}>Delete</button>
+                <td>{u.email}</td>
+                <td>{u.isAdmin ? "🔐 Admin" : "👤 User"}</td>
+                <td>
+                  <button 
+                    onClick={() => handleDelete(u._id)} 
+                    className="admin-action-btn danger"
+                  >
+                    Delete
+                  </button>
                 </td>
               </tr>
             ))}

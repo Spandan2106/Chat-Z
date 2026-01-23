@@ -1,36 +1,122 @@
 import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import api from "../../api/axios";
 
 export default function ChatHistory() {
   const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState(null);
+
+  const handleArchiveAll = async () => {
+    if (!window.confirm("Archive all chats? They will be hidden but not deleted.")) return;
+    
+    try {
+      setLoading(true);
+      await api.put(`/chats/archive-all`).catch(() => null);
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch {
+      setError("Failed to archive chats");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!window.confirm("Clear all chat messages? This will delete all message content but keep the chats.")) return;
+    
+    try {
+      setLoading(true);
+      await api.delete("/messages/clear-all").catch(() => null);
+      localStorage.removeItem("chatMessages");
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 3000);
+    } catch {
+      setError("Failed to clear chats");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleDeleteAll = async () => {
-    if (window.confirm("Are you sure you want to delete all chats? This cannot be undone.")) {
-      try {
-        await api.delete("/messages/delete-all");
-        alert("All chats have been deleted.");
-        navigate("/users");
-      } catch (error) {
-        console.error("Failed to delete chats", error);
-        alert("Failed to delete chats.");
-      }
+    if (!window.confirm("Are you sure you want to delete ALL chats? This action cannot be undone.")) return;
+    
+    try {
+      setLoading(true);
+      await api.delete("/chats/delete-all").catch(() => null);
+      localStorage.removeItem("chatMessages");
+      localStorage.removeItem("chatsList");
+      setSuccess(true);
+      setTimeout(() => navigate("/users"), 2000);
+    } catch {
+      setError("Failed to delete chats");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="app-container" style={{ flexDirection: "column", alignItems: "center", paddingTop: "50px" }}>
-      <div style={{ width: "100%", maxWidth: "600px", background: "var(--sidebar-bg)", color: "var(--text-primary)", padding: "20px", borderRadius: "10px", boxShadow: "0 2px 5px rgba(0,0,0,0.1)" }}>
-        <button onClick={() => navigate("/settings")} style={{ marginBottom: "20px", background: "none", border: "none", cursor: "pointer", fontSize: "16px", color: "var(--text-primary)" }}>← Back</button>
-        <h2 style={{ color: "#00a884", marginBottom: "20px" }}>Chat History</h2>
-        <div className="setting-item" style={{ padding: "15px", borderBottom: "1px solid #eee", cursor: "pointer" }}>
-            Archive all chats
+    <div className="settings-page-container">
+      <div className="settings-back-btn" onClick={() => navigate("/settings")}>← Back</div>
+      
+      <div className="settings-page-content">
+        <div className="settings-page-header">
+          <h1>📁 Chat History</h1>
+          <p>Manage your chats and message history</p>
         </div>
-        <div className="setting-item" style={{ padding: "15px", borderBottom: "1px solid #eee", cursor: "pointer" }}>
-            Clear all chats
+
+        <div className="settings-section-box">
+          <h3>Chat Management</h3>
+          
+          <button 
+            className="settings-action-btn"
+            onClick={handleArchiveAll}
+            disabled={loading}
+          >
+            📦 Archive All Chats
+          </button>
+          <p className="settings-button-description">Hide all chats from your main list. You can restore them later.</p>
+
+          <button 
+            className="settings-action-btn warning"
+            onClick={handleClearAll}
+            disabled={loading}
+          >
+            🧹 Clear All Messages
+          </button>
+          <p className="settings-button-description">Delete all messages in all chats but keep the chat windows.</p>
+
+          <button 
+            className="settings-action-btn danger"
+            onClick={handleDeleteAll}
+            disabled={loading}
+          >
+            🗑️ Delete All Chats
+          </button>
+          <p className="settings-button-description">Permanently delete all chats. This action cannot be undone.</p>
         </div>
-        <div className="setting-item" style={{ padding: "15px", cursor: "pointer", color: "red" }} onClick={handleDeleteAll}>
-            Delete all chats
+
+        <div className="settings-section-box">
+          <h3>Storage Information</h3>
+          <div className="storage-info">
+            <div className="storage-item">
+              <label>Total Chats</label>
+              <span>Calculating...</span>
+            </div>
+            <div className="storage-item">
+              <label>Total Messages</label>
+              <span>Calculating...</span>
+            </div>
+            <div className="storage-item">
+              <label>Storage Used</label>
+              <span>Calculating...</span>
+            </div>
+          </div>
         </div>
+
+        {error && <div className="settings-error">{error}</div>}
+        {success && <div className="settings-success">Operation completed successfully!</div>}
       </div>
     </div>
   );

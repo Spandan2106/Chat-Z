@@ -5,4 +5,4 @@ const blockSchema = new mongoose.Schema({
   blocked: { type: mongoose.Schema.Types.ObjectId, ref: "User" }
 }, { timestamps: true });
 
-module.exports = mongoose.model("Block", blockSchema);
+module.exports = mongoose.models.Block || mongoose.model("Block", blockSchema);

@@ -3,7 +3,6 @@ require("dotenv").config({ path: path.join(__dirname, "../.env") });
 const http = require("http");
 const app = require("./app");
 const connectDB = require("./config/db");
-const setupSocket = require("./config/socket");
 
 if (!process.env.MONGO_URI) {
   console.error("Error: MONGO_URI is not defined in .env file");
@@ -14,12 +13,38 @@ connectDB();
 
 const server = http.createServer(app);
 const io = require("socket.io")(server, {
-  cors: { origin: "*" }
+  cors: { 
+    origin: "*",
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  transports: ["websocket", "polling"],
+  reconnectionDelay: 1000,
+  reconnection: true,
+  reconnectionAttempts: 10
 });
 
-setupSocket(io);
+// Load socket handlers ONCE (outside the connection handler)
+const messageSocketHandler = require("./sockets/message.socket");
+const typingSocketHandler = require("./sockets/typing.socket");
+const chatSocketHandler = require("./sockets/chat.socket");
 
-server.listen(process.env.PORT, () =>
-  console.log("Server running on port", process.env.PORT),
-  console.log("server is running at : http://localhost:" + process.env.PORT)
-);
+// Initialize socket handlers
+io.on("connection", (socket) => {
+  console.log("New client connected:", socket.id);
+
+  // Setup socket handlers (each handler is a function that receives io and socket)
+  messageSocketHandler(io, socket);
+  typingSocketHandler(io, socket);
+  chatSocketHandler(io, socket);
+
+  // Handle disconnect
+  socket.on("disconnect", () => {
+    console.log("Client disconnected:", socket.id);
+  });
+});
+
+server.listen(process.env.PORT, () => {
+  console.log("Server running on port", process.env.PORT);
+  console.log("Server is running at: http://localhost:" + process.env.PORT);
+});

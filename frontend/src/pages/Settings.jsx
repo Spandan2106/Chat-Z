@@ -29,33 +29,105 @@ export default function Settings() {
   };
 
   return (
-    <div className="app-container" style={{ flexDirection: "column", alignItems: "center", paddingTop: "50px" }}>
-      <div style={{ width: "100%", maxWidth: "600px", background: "rgba(32, 44, 51, 0.9)", color: "var(--text-primary)", padding: "20px", borderRadius: "10px", boxShadow: "0 8px 32px 0 rgba(0, 0, 0, 0.37)" }}>
-        <button onClick={() => navigate("/users")} style={{ marginBottom: "20px", background: "none", border: "none", cursor: "pointer", fontSize: "16px" }}>← Back</button>
-        <h2 style={{ color: "#00a884", marginBottom: "20px" }}>Settings</h2>
-        
-        <div className="setting-item" style={{ padding: "15px", borderBottom: "1px solid #eee", cursor: "pointer" }} onClick={() => navigate("/settings/notifications")}>
-          <strong>🔔 Notifications</strong>
-          <p style={{ color: "#666", fontSize: "14px" }}>Message, group & call tones</p>
+    <div className="settings-container">
+      <div className="settings-sidebar">
+        <div className="settings-sidebar-title">Settings Menu</div>
+        <div className="settings-nav-item" onClick={() => navigate("/users")} style={{ fontWeight: "bold", color: "var(--primary-green)" }}>
+          <span>←</span> Back to Chat
         </div>
-        <div className="setting-item" style={{ padding: "15px", borderBottom: "1px solid #eee", cursor: "pointer" }} onClick={() => navigate("/settings/privacy")}>
-          <strong>🔒 Privacy</strong>
-          <p style={{ color: "#666", fontSize: "14px" }}>Block contacts, disappearing messages</p>
+        <div 
+          className="settings-nav-item" 
+          onClick={() => navigate("/settings/notifications")}
+        >
+          <span>🔔</span> Notifications
         </div>
-        <div className="setting-item" style={{ padding: "15px", borderBottom: "1px solid #eee", cursor: "pointer" }} onClick={() => navigate("/settings/security")}>
-          <strong>🔐 Security</strong>
-          <p style={{ color: "#666", fontSize: "14px" }}>End-to-end encryption</p>
+        <div 
+          className="settings-nav-item" 
+          onClick={() => navigate("/settings/privacy")}
+        >
+          <span>🔒</span> Privacy
         </div>
-        <div className="setting-item" style={{ padding: "15px", borderBottom: "1px solid #eee", cursor: "pointer" }} onClick={toggleTheme}>
-          <strong>🎨 Theme</strong>
-          <p style={{ color: "#666", fontSize: "14px" }}>Current: {theme.toUpperCase()} (Click to toggle)</p>
+        <div 
+          className="settings-nav-item" 
+          onClick={() => navigate("/settings/security")}
+        >
+          <span>🔐</span> Security
         </div>
-        <div className="setting-item" style={{ padding: "15px", borderBottom: "1px solid #eee", cursor: "pointer" }} onClick={() => navigate("/settings/chat-history")}>
-          <strong>📁 Chat History</strong>
-          <p style={{ color: "#666", fontSize: "14px" }}>Archive all chats, clear all chats, delete all chats</p>
+        <div 
+          className="settings-nav-item" 
+          onClick={toggleTheme}
+        >
+          <span>🎨</span> Theme
         </div>
-        <div className="setting-item" style={{ padding: "15px", cursor: "pointer", color: "red" }} onClick={handleDeleteAccount}>
-          <strong>🗑️ Delete Account</strong>
+        <div 
+          className="settings-nav-item" 
+          onClick={() => navigate("/settings/chat-history")}
+        >
+          <span>📁</span> Chat History
+        </div>
+        <div 
+          className="settings-nav-item" 
+          onClick={handleDeleteAccount}
+          style={{ color: "#e74c3c" }}
+        >
+          <span>🗑️</span> Delete Account
+        </div>
+      </div>
+
+      <div className="settings-content">
+        <div className="settings-section">
+          <h2 className="settings-section-title">Settings</h2>
+          <p className="settings-section-subtitle">Manage your account preferences and security</p>
+
+          <div className="settings-item" onClick={() => navigate("/settings/notifications")}>
+            <div className="settings-item-info">
+              <div className="settings-item-label">🔔 Notifications</div>
+              <div className="settings-item-description">Message, group & call tones</div>
+            </div>
+            <div className="settings-item-action">→</div>
+          </div>
+
+          <div className="settings-item" onClick={() => navigate("/settings/privacy")}>
+            <div className="settings-item-info">
+              <div className="settings-item-label">🔒 Privacy</div>
+              <div className="settings-item-description">Block contacts, disappearing messages</div>
+            </div>
+            <div className="settings-item-action">→</div>
+          </div>
+
+          <div className="settings-item" onClick={() => navigate("/settings/security")}>
+            <div className="settings-item-info">
+              <div className="settings-item-label">🔐 Security</div>
+              <div className="settings-item-description">End-to-end encryption</div>
+            </div>
+            <div className="settings-item-action">→</div>
+          </div>
+
+          <div className="settings-item" onClick={toggleTheme}>
+            <div className="settings-item-info">
+              <div className="settings-item-label">🎨 Theme</div>
+              <div className="settings-item-description">Current: {theme.toUpperCase()} (Click to toggle)</div>
+            </div>
+            <div className="settings-item-action">
+              <button className={`settings-toggle ${theme === "dark" ? "active" : ""}`} />
+            </div>
+          </div>
+
+          <div className="settings-item" onClick={() => navigate("/settings/chat-history")}>
+            <div className="settings-item-info">
+              <div className="settings-item-label">📁 Chat History</div>
+              <div className="settings-item-description">Archive, clear, or delete all chats</div>
+            </div>
+            <div className="settings-item-action">→</div>
+          </div>
+
+          <div className="settings-item" onClick={handleDeleteAccount} style={{ borderColor: "#e74c3c" }}>
+            <div className="settings-item-info">
+              <div className="settings-item-label" style={{ color: "#e74c3c" }}>🗑️ Delete Account</div>
+              <div className="settings-item-description">Permanently delete your account and all data</div>
+            </div>
+            <div className="settings-item-action">→</div>
+          </div>
         </div>
       </div>
     </div>

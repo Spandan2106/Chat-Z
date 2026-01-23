@@ -16,4 +16,4 @@ const messageSchema = new mongoose.Schema({
   deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }]
 }, { timestamps: true });
 
-module.exports = mongoose.model("Message", messageSchema);
+module.exports = mongoose.models.Message || mongoose.model("Message", messageSchema);

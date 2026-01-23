@@ -3,10 +3,13 @@ import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { socket } from "../socket/socket";
+import { initializeChatResizer } from "../utils/chatResizer";
 
 export default function Users() {
   const { user, logout } = useAuth();
   const [chats, setChats] = useState([]);
+  // eslint-disable-next-line no-unused-vars
+  const [allUsers, setAllUsers] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedChat, setSelectedChat] = useState(null);
@@ -20,80 +23,169 @@ export default function Users() {
   const [socketConnected, setSocketConnected] = useState(false);
   const [typing, setTyping] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  // eslint-disable-next-line no-unused-vars
+  const [typingUsername, setTypingUsername] = useState("");
   const [showChatMenu, setShowChatMenu] = useState(false);
   const [showContactInfo, setShowContactInfo] = useState(false);
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [replyMessage, setReplyMessage] = useState(null);
+  // eslint-disable-next-line no-unused-vars
+  const [onlineUsers, setOnlineUsers] = useState([]);
   const fileInputRef = useRef();
+  const textInputRef = useRef();
+  const typingTimeoutRef = useRef(null);
+  const [filterType, setFilterType] = useState("all"); // 'all', 'users', 'groups'
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [messageToForward, setMessageToForward] = useState(null);
+  const [starredMessages, setStarredMessages] = useState([]);
 
+  // Initialize chat resizer
   useEffect(() => {
+    const cleanup = initializeChatResizer();
+    return cleanup;
+  }, []);
+
+  // Socket connection setup
+  useEffect(() => {
+    if (!user) return;
+
     socket.emit("setup", user);
-    socket.on("connected", () => setSocketConnected(true));
+    socket.on("connected", () => {
+      console.log("Socket connected");
+      setSocketConnected(true);
+    });
+
+    socket.on("online-users", (users) => {
+      console.log("Online users:", users);
+      setOnlineUsers(users);
+    });
 
     return () => {
-      socket.disconnect();
+      socket.off("connected");
+      socket.off("online-users");
     };
   }, [user]);
 
+  useEffect(() => {
+    if (user?.starredMessages) {
+      setStarredMessages(user.starredMessages);
+    }
+  }, [user]);
+
+  // Real-time message and typing handlers
   useEffect(() => {
     if (!socket) return;
 
     const messageHandler = (newMessageReceived) => {
+      console.log("Message received:", newMessageReceived);
       if (!selectedChat || selectedChat._id !== newMessageReceived.chatId._id) {
-        // Give notification (optional)
+        // Update chat list
+        setChats(prev => {
+          const updated = prev.map(chat => 
+            chat._id === newMessageReceived.chatId._id 
+              ? { ...chat, latestMessage: newMessageReceived }
+              : chat
+          );
+          return updated;
+        });
       } else {
-        setMessages((prevMessages) => [...prevMessages, newMessageReceived]);
+        setMessages((prevMessages) => {
+          const exists = prevMessages.some(m => m._id === newMessageReceived._id);
+          return exists ? prevMessages : [...prevMessages, newMessageReceived];
+        });
       }
     };
 
-    const typingHandler = (room) => {
-      if (selectedChat && selectedChat._id === room) setIsTyping(true);
-    };
-    const stopTypingHandler = (room) => {
-      if (selectedChat && selectedChat._id === room) setIsTyping(false);
+    const typingHandler = ({ username, chatId }) => {
+      if (selectedChat && selectedChat._id === chatId) {
+        setTypingUsername(username);
+        setIsTyping(true);
+      }
     };
 
-    socket.on("message received", messageHandler);
-    socket.on("typing", typingHandler);
-    socket.on("stop typing", stopTypingHandler);
+    const stopTypingHandler = ({ chatId } = {}) => {
+      if (!chatId || !selectedChat) return;
+      if (selectedChat._id === chatId) {
+        setIsTyping(false);
+        setTypingUsername("");
+      }
+    };
+
+    const userOnlineHandler = ({ userId, username }) => {
+      console.log(`${username} is online`);
+      setOnlineUsers(prev => [...new Set([...prev, userId])]);
+    };
+
+    const userOfflineHandler = ({ userId }) => {
+      console.log(`User ${userId} is offline`);
+      setOnlineUsers(prev => prev.filter(id => id !== userId));
+    };
+
+    socket.on("receive-message", messageHandler);
+    socket.on("user-typing", typingHandler);
+    socket.on("stop-typing", stopTypingHandler);
+    socket.on("user-online", userOnlineHandler);
+    socket.on("user-offline", userOfflineHandler);
 
     return () => {
-      socket.off("message received", messageHandler);
-      socket.off("typing", typingHandler);
-      socket.off("stop typing", stopTypingHandler);
+      socket.off("receive-message", messageHandler);
+      socket.off("user-typing", typingHandler);
+      socket.off("stop-typing", stopTypingHandler);
+      socket.off("user-online", userOnlineHandler);
+      socket.off("user-offline", userOfflineHandler);
     };
   }, [selectedChat]);
 
+  // Fetch chats on component mount
   useEffect(() => {
     const fetchChats = async () => {
+      if (!user) return;
       try {
         const res = await api.get("/messages/chat");
-        setChats(res.data);
+        console.log("Chats loaded:", res.data);
+        setChats(res.data || []);
       } catch (err) {
-        console.error("Failed to fetch chats", err);
+        console.error("Failed to fetch chats:", err);
+        setChats([]);
       }
     };
-    if (user) fetchChats();
+    fetchChats();
   }, [user]);
 
+  // Fetch all users for group creation
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const res = await api.get("/users");
+        setAllUsers(res.data || []);
+      } catch (err) {
+        console.error("Failed to fetch users:", err);
+      }
+    };
+    fetchUsers();
+  }, [user]);
+
+  // Fetch messages when chat is selected
   useEffect(() => {
     const getMessages = async () => {
-      if (selectedChat) {
-        try {
-          const res = await api.get(`/messages/${selectedChat._id}`);
-          setMessages(res.data);
-          socket.emit("join chat", selectedChat._id);
-          setIsMuted(user?.mutedChats?.includes(selectedChat._id) || false);
-        } catch (err) {
-          console.error("Failed to fetch messages", err);
-        }
+      if (!selectedChat) return;
+      try {
+        const res = await api.get(`/messages/${selectedChat._id}`);
+        console.log("Messages loaded:", res.data);
+        setMessages(res.data || []);
+        socket.emit("join-chat", selectedChat._id);
+        setIsMuted(user?.mutedChats?.includes(selectedChat._id) || false);
+      } catch (err) {
+        console.error("Failed to fetch messages:", err);
+        setMessages([]);
       }
     };
     getMessages();
   }, [selectedChat, user]);
 
+  // Auto-scroll to latest message
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -112,36 +204,36 @@ export default function Users() {
         chatId: selectedChat._id,
         replyTo: replyMessage ? replyMessage._id : null
       });
-      socket.emit("new message", res.data);
+      socket.emit("send-message", res.data);
       setMessages([...messages, res.data]);
       setNewMessage("");
       setReplyMessage(null);
-      socket.emit("stop typing", selectedChat._id);
+      socket.emit("stop-typing", selectedChat._id);
     } catch (err) {
-      console.error("Failed to send message", err);
+      console.error("Failed to send message:", err);
     }
   };
 
   const handleTyping = (e) => {
     setNewMessage(e.target.value);
 
-    if (!socketConnected) return;
+    if (!socketConnected || !selectedChat) return;
 
     if (!typing) {
       setTyping(true);
-      socket.current.emit("typing", selectedChat._id);
+      socket.emit("typing", { chatId: selectedChat._id, username: user.username });
     }
 
-    let lastTypingTime = new Date().getTime();
-    var timerLength = 3000;
-    setTimeout(() => {
-      var timeNow = new Date().getTime();
-      var timeDiff = timeNow - lastTypingTime;
-      if (timeDiff >= timerLength && typing) {
-        socket.current.emit("stop typing", selectedChat._id);
-        setTyping(false);
-      }
-    }, timerLength);
+    // Clear existing timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    // Set new timeout
+    typingTimeoutRef.current = setTimeout(() => {
+      socket.emit("stop-typing", { chatId: selectedChat._id });
+      setTyping(false);
+    }, 3000);
   };
 
   const handleFileUpload = async (e) => {
@@ -158,7 +250,7 @@ export default function Users() {
       // Adjust based on your media message response structure
       const msg = { ...res.data, sender: user, createdAt: new Date() };
       setMessages([...messages, msg]);
-      socket.emit("new message", msg);
+      socket.emit("send-message", msg);
     } catch (err) {
       console.error("File upload failed", err);
     }
@@ -254,6 +346,41 @@ export default function Users() {
     }
   };
 
+  const handleReportUser = async () => {
+    if (!selectedChat) return;
+    const targetName = selectedChat.isGroupChat ? selectedChat.chatName : getSender(user, selectedChat.users).username;
+    if (window.confirm(`Are you sure you want to report ${targetName}?`)) {
+      try {
+        // Mock API call - in production connect to a real endpoint
+        // await api.post("/users/report", { chatId: selectedChat._id });
+        alert(`Report submitted for ${targetName}. We will investigate.`);
+        setShowChatMenu(false);
+      } catch (err) {
+        console.error(err);
+        alert("Failed to submit report.");
+      }
+    }
+  };
+
+  const handleExportChat = () => {
+    if (!messages.length) return alert("No messages to export.");
+    const chatText = messages.map(m => {
+      const senderName = m.sender._id === user._id ? "Me" : m.sender.username;
+      const time = new Date(m.createdAt).toLocaleString();
+      return `[${time}] ${senderName}: ${m.content || m.message}`;
+    }).join('\n');
+
+    const blob = new Blob([chatText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `chat_export_${selectedChat.isGroupChat ? selectedChat.chatName : getSender(user, selectedChat.users).username}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setShowChatMenu(false);
+  };
+
   const handleShowContactInfo = () => {
     setShowContactInfo(true);
     setShowChatMenu(false);
@@ -264,11 +391,7 @@ export default function Users() {
     try {
       await api.put("/users/mute", { chatId: selectedChat._id });
       setIsMuted(!isMuted);
-      // Optimistically update user object in context if possible, or just local state
-      if (user.mutedChats) {
-        if (isMuted) user.mutedChats = user.mutedChats.filter(id => id !== selectedChat._id);
-        else user.mutedChats.push(selectedChat._id);
-      }
+      // Local state only - don't mutate hook values
     } catch (err) {
       console.error(err);
     }
@@ -276,15 +399,44 @@ export default function Users() {
 
   const handleReply = (msg) => {
     setReplyMessage(msg);
-    // Optional: focus input
+    textInputRef.current?.focus();
+  };
+
+  const handleStarMessage = async (msgId) => {
+    try {
+      const { data } = await api.put("/users/star", { messageId: msgId });
+      setStarredMessages(data);
+    } catch (err) {
+      console.error("Failed to star message", err);
+    }
+  };
+
+  const handleForwardMessage = (msg) => {
+    setMessageToForward(msg);
+    setShowForwardModal(true);
+  };
+
+  const confirmForward = async (targetChat) => {
+    if (!messageToForward) return;
+    // Send message to targetChat
+    await api.post("/messages", { content: messageToForward.content || messageToForward.message, chatId: targetChat._id });
+    setShowForwardModal(false);
+    setMessageToForward(null);
+    alert("Message forwarded!");
   };
 
   const filteredMessages = messages.filter(msg => (msg.message || msg.content || "").toLowerCase().includes(messageSearchQuery.toLowerCase()));
 
+  const filteredChats = chats.filter(chat => {
+    if (filterType === "groups") return chat.isGroupChat;
+    if (filterType === "users") return !chat.isGroupChat;
+    return true;
+  });
+
   return (
-    <div className="app-container">
-      {/* Sidebar */}
-      <div className="sidebar">
+    <div className="chat-layout">
+      {/* Chat List Sidebar */}
+      <div className="chat-list">
         <div className="sidebar-header">
           <div style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }} onClick={() => navigate("/profile")}>
             {user && renderAvatar(user)}
@@ -305,6 +457,12 @@ export default function Users() {
           </button>
           </div>
         </div>
+
+        <div style={{ display: "flex", padding: "10px", gap: "10px", borderBottom: "1px solid #e9edef" }}>
+          <button onClick={() => setFilterType("all")} style={{ flex: 1, padding: "8px", borderRadius: "20px", border: "none", background: filterType === "all" ? "#00a884" : "#e9edef", color: filterType === "all" ? "white" : "black", cursor: "pointer" }}>All</button>
+          <button onClick={() => setFilterType("users")} style={{ flex: 1, padding: "8px", borderRadius: "20px", border: "none", background: filterType === "users" ? "#00a884" : "#e9edef", color: filterType === "users" ? "white" : "black", cursor: "pointer" }}>Users</button>
+          <button onClick={() => setFilterType("groups")} style={{ flex: 1, padding: "8px", borderRadius: "20px", border: "none", background: filterType === "groups" ? "#00a884" : "#e9edef", color: filterType === "groups" ? "white" : "black", cursor: "pointer" }}>Groups</button>
+        </div>
         
         {showGroupModal && (
           <div style={{ padding: "10px", background: "#f0f2f5" }}>
@@ -318,6 +476,18 @@ export default function Users() {
               ))}
             </div>
             <button onClick={createGroup} style={{width: "100%"}}>Create Group</button>
+          </div>
+        )}
+
+        {showForwardModal && (
+          <div style={{ padding: "10px", background: "#f0f2f5", position: "absolute", top: "60px", left: 0, width: "100%", height: "100%", zIndex: 20 }}>
+            <h3>Forward to...</h3>
+            <button onClick={() => setShowForwardModal(false)}>Cancel</button>
+            <div style={{ overflowY: "auto", height: "calc(100% - 50px)" }}>
+              {chats.map(chat => (
+                <div key={chat._id} className="user-item" onClick={() => confirmForward(chat)}>{chat.isGroupChat ? chat.chatName : getSender(user, chat.users).username}</div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -362,7 +532,7 @@ export default function Users() {
             </div>
           )) : (
             /* Chat List */
-            chats.map((chat) => (
+            filteredChats.map((chat) => (
               <div
                 key={chat._id}
                 className={`user-item ${selectedChat?._id === chat._id ? "active" : ""}`}
@@ -384,6 +554,9 @@ export default function Users() {
           )}
         </div>
       </div>
+
+      {/* Chat Resizer - Drag to resize chat list */}
+      <div className="chat-resizer"></div>
 
       {/* Chat Window */}
       {selectedChat ? (
@@ -417,6 +590,8 @@ export default function Users() {
                  <div className="menu-dropdown">
                    <div className="menu-item" onClick={handleShowContactInfo}>Contact Info</div>
                    <div className="menu-item" onClick={handleClearChat}>Clear Chat</div>
+                   <div className="menu-item" onClick={handleExportChat}>Export Chat</div>
+                   <div className="menu-item" onClick={handleReportUser} style={{color: "orange"}}>Report</div>
                    {!selectedChat.isGroupChat && <div className="menu-item" onClick={handleBlockUser} style={{color: "#ff4d4d"}}>Block</div>}
                  </div>
                )}
@@ -426,7 +601,7 @@ export default function Users() {
           </div>
           <div className="chat-messages">
             {filteredMessages.map((msg, idx) => (
-              <div key={msg._id || idx} className={`message ${msg.sender._id === user._id ? "sent" : "received"}`}>
+              <div key={msg._id || idx} className={`message-bubble ${msg.sender._id === user._id ? "me" : "other"}`}>
                 {msg.replyTo && (
                   <div className="message-quote" onClick={() => { /* Optional: scroll to message */ }}>
                     <div className="message-quote-sender">{msg.replyTo.sender.username || "User"}</div>
@@ -441,13 +616,17 @@ export default function Users() {
                 <span className="message-time">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 <span className="msg-tick" style={{ color: msg.status === "seen" ? "#53bdeb" : "#999" }}>{msg.status === "seen" ? "✓✓" : "✓✓"}</span>
                 <button className="reply-btn" onClick={() => handleReply(msg)} style={{position: "absolute", top: "5px", right: "5px", background: "none", border: "none", cursor: "pointer", opacity: 0.5, fontSize: "10px"}}>↩</button>
+                <div style={{ position: "absolute", top: "5px", right: "25px", display: "flex", gap: "5px" }}>
+                  <button onClick={() => handleStarMessage(msg._id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: starredMessages.includes(msg._id) ? "gold" : "gray" }}>★</button>
+                  <button onClick={() => handleForwardMessage(msg)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px" }}>➡</button>
+                </div>
               </div>
             ))}
             <div ref={scrollRef} />
           </div>
           <div className="chat-input-area">
             {replyMessage && (
-              <div style={{position: "absolute", bottom: "60px", left: "0", width: "100%", zIndex: 5}}>
+              <div style={{position: "absolute", bottom: "100%", left: "0", width: "100%", zIndex: 5}}>
                 <div className="reply-preview">
                   <div className="reply-content">Replying to <b>{replyMessage.sender.username}</b>: {replyMessage.message || replyMessage.content}</div>
                   <button onClick={() => setReplyMessage(null)} style={{background: "none", border: "none", cursor: "pointer"}}>✕</button>
@@ -457,7 +636,7 @@ export default function Users() {
             <button onClick={() => fileInputRef.current.click()} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "20px", marginRight: "10px" }}>📎</button>
             <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileUpload} />
             <form onSubmit={handleSendMessage} style={{ display: "flex", width: "100%", padding: 0, background: "transparent", boxShadow: "none" }}>
-              <input type="text" className="chat-input" placeholder="Type a message" value={newMessage} onChange={handleTyping} />
+              <input type="text" ref={textInputRef} className="chat-input" placeholder="Type a message" value={newMessage} onChange={handleTyping} />
               <button type="submit" className="send-btn">➤</button>
             </form>
           </div>

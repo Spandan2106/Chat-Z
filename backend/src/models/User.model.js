@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema({
   archivedChats: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   contacts: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   mutedChats: [{ type: mongoose.Schema.Types.ObjectId, ref: "Chat" }],
+  starredMessages: [{ type: mongoose.Schema.Types.ObjectId, ref: "Message" }],
   lastSeen: { type: Date, default: Date.now },
 }, { timestamps: true });
 

@@ -2,7 +2,7 @@ import { useEffect } from "react";
 import { useChat } from "../context/ChatContext";
 
 export default function MessageList() {
-  const { messages } = useChat();
+  const { messages, typingUsers } = useChat();
 
   useEffect(()=>{
     const container = document.getElementById("chat-messages");
@@ -17,6 +17,13 @@ export default function MessageList() {
           {msg.status==="seen" && <span className="seen">✓✓</span>}
         </div>
       ))}
+      {Object.keys(typingUsers).length > 0 && (
+        <div className="typing-indicator">
+          {Object.values(typingUsers).map((user, index) => (
+            <span key={index}>{user.username} is typing...</span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
