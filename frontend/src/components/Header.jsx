@@ -7,8 +7,12 @@ export default function Header() {
 
   return (
     <header className="app-header">
-      <div className="header-logo" onClick={() => navigate("/")}>Chat_Z</div>
+      <div className="header-logo" onClick={() => navigate("/")}>
+        <img src="/Chat_Z.jpeg" alt="Chat_Z Logo" className="logo-image" onError={(e) => {e.target.style.display='none'}} />
+        <span className="dynamic-logo-text">Chat_Z</span>
+      </div>
       <nav className="header-nav">
+        <button onClick={() => navigate("/status")}>Status</button>
         <button onClick={() => navigate("/users")}>Chats</button>
         <button onClick={() => navigate("/about")}>About</button>
         {user ? (

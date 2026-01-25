@@ -324,9 +324,10 @@ form button:disabled {
 .chat-window {
   flex: 1;
   height: 100%;
+  width: 100%;
   display: flex;
   flex-direction: column;
-  background: var(--app-bg);
+  background: white;
   position: relative;
   overflow: hidden;
 }

@@ -57,9 +57,7 @@ export default function ChatHistory() {
   };
 
   return (
-    <div className="settings-page-container">
-      <div className="settings-back-btn" onClick={() => navigate("/settings")}>← Back</div>
-      
+    <div className="settings-page-container" style={{ height: '100%', overflowY: 'auto' }}>
       <div className="settings-page-content">
         <div className="settings-page-header">
           <h1>📁 Chat History</h1>

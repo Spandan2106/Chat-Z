@@ -1,18 +1,20 @@
-import { Routes, Route, Navigate } from "react-router-dom";
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import Users from "./pages/Users";
-import Profile from "./pages/Profile";
-import Admin from "./pages/Admin";
-import Settings from "./pages/Settings";
+import { Routes, Route, Navigate, Outlet } from "react-router-dom";
+import Login from "./pages/Login.jsx";
+import Register from "./pages/Register.jsx";
+import Users from "./pages/Users.jsx";
+import Profile from "./pages/Profile.jsx";
+import Admin from "./pages/Admin.jsx";
+import Settings from "./pages/Settings.jsx";
 import Notifications from "/src/pages/settings/Notifications.jsx";
 import Privacy from "/src/pages/settings/Privacy.jsx";
 import Security from "/src/pages/settings/Security.jsx";
 import ChatHistory from "/src/pages/settings/ChatHistory.jsx";
 import { useAuth } from "./context/AuthContext";
-import Header from "./components/Header";
-import Footer from "./components/Footer";
-import About from "./pages/About";
+import Header from "./components/Header.jsx";
+import Footer from "./components/Footer.jsx";
+import About from "./pages/About.jsx";
+import Status from "./pages/Status.jsx";
+import VirtualKeyboard from "./components/VirtualKeyboard.jsx";
 
 // Protected Route Wrapper
 const ProtectedRoute = ({ children, user, isAdmin = false }) => {
@@ -44,6 +46,12 @@ export default function App() {
       <Route 
         path="/register" 
         element={user ? <Navigate to="/users" replace /> : <Register />} 
+      />
+      <Route 
+        path="/status"
+        element={
+          <ProtectedRoute user={user}><Status /></ProtectedRoute>
+        }
       />
       <Route path="/about" element={<About />} />
 
@@ -83,48 +91,27 @@ export default function App() {
       <Route 
         path="/settings" 
         element={
-          <ProtectedRoute user={user}>
-            <Settings />
-          </ProtectedRoute>
-        } 
-      />
-      <Route 
-        path="/settings/notifications" 
-        element={
-          <ProtectedRoute user={user}>
-            <Notifications />
-          </ProtectedRoute>
-        } 
-      />
-      <Route 
-        path="/settings/privacy" 
-        element={
-          <ProtectedRoute user={user}>
-            <Privacy />
-          </ProtectedRoute>
-        } 
-      />
-      <Route 
-        path="/settings/security" 
-        element={
-          <ProtectedRoute user={user}>
-            <Security />
-          </ProtectedRoute>
-        } 
-      />
-      <Route 
-        path="/settings/chat-history" 
-        element={
-          <ProtectedRoute user={user}>
-            <ChatHistory />
-          </ProtectedRoute>
-        } 
-      />
+          <ProtectedRoute user={user}><Settings /></ProtectedRoute>
+        }
+      >
+        <Route index element={
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-secondary)' }}>
+            <span style={{ fontSize: '48px', marginBottom: '20px' }}>⚙️</span>
+            <h2>Settings</h2>
+            <p>Select a category from the menu to configure your preferences.</p>
+          </div>
+        } />
+        <Route path="notifications" element={<Notifications />} />
+        <Route path="privacy" element={<Privacy />} />
+        <Route path="security" element={<Security />} />
+        <Route path="chat-history" element={<ChatHistory />} />
+      </Route>
 
       {/* Catch All - Redirect to home */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
     {user && <Footer />}
+    <VirtualKeyboard />
     </>
   );
 }

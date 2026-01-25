@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { socket } from "../socket/socket";
-import { initializeChatResizer } from "../utils/chatResizer";
 
 export default function Users() {
   const { user, logout } = useAuth();
@@ -30,21 +29,44 @@ export default function Users() {
   const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [replyMessage, setReplyMessage] = useState(null);
   // eslint-disable-next-line no-unused-vars
   const [onlineUsers, setOnlineUsers] = useState([]);
   const fileInputRef = useRef();
   const textInputRef = useRef();
   const typingTimeoutRef = useRef(null);
   const [filterType, setFilterType] = useState("all"); // 'all', 'users', 'groups'
-  const [showForwardModal, setShowForwardModal] = useState(false);
-  const [messageToForward, setMessageToForward] = useState(null);
+  const [sidebarWidth, setSidebarWidth] = useState(350);
+  const sidebarRef = useRef(null);
   const [starredMessages, setStarredMessages] = useState([]);
 
-  // Initialize chat resizer
-  useEffect(() => {
-    const cleanup = initializeChatResizer();
-    return cleanup;
+  // --- Call State ---
+  const [stream, setStream] = useState();
+  const [receivingCall, setReceivingCall] = useState(false);
+  const [caller, setCaller] = useState("");
+  const [callAccepted, setCallAccepted] = useState(false);
+  const [callEnded, setCallEnded] = useState(false);
+  const myVideo = useRef();
+  const userVideo = useRef();
+
+  const startResizing = useCallback((mouseDownEvent) => {
+    mouseDownEvent.preventDefault();
+    const startX = mouseDownEvent.clientX;
+    const startWidth = sidebarRef.current.getBoundingClientRect().width;
+
+    const doDrag = (mouseMoveEvent) => {
+      const newWidth = startWidth + (mouseMoveEvent.clientX - startX);
+      if (newWidth > 250 && newWidth < 800) {
+        setSidebarWidth(newWidth);
+      }
+    };
+
+    const stopDrag = () => {
+      document.removeEventListener('mousemove', doDrag);
+      document.removeEventListener('mouseup', stopDrag);
+    };
+
+    document.addEventListener('mousemove', doDrag);
+    document.addEventListener('mouseup', stopDrag);
   }, []);
 
   // Socket connection setup
@@ -72,7 +94,7 @@ export default function Users() {
     if (user?.starredMessages) {
       setStarredMessages(user.starredMessages);
     }
-  }, [user]);
+  }, [user?.starredMessages]);
 
   // Real-time message and typing handlers
   useEffect(() => {
@@ -138,6 +160,18 @@ export default function Users() {
     };
   }, [selectedChat]);
 
+  // --- Call useEffect ---
+  useEffect(() => {
+    socket.on("callUser", (data) => {
+      setReceivingCall(true);
+      setCaller(data.from);
+    });
+
+    return () => {
+      socket.off("callUser");
+    }
+  }, []);
+
   // Fetch chats on component mount
   useEffect(() => {
     const fetchChats = async () => {
@@ -201,13 +235,11 @@ export default function Users() {
     try {
       const res = await api.post(`/messages`, {
         content: newMessage,
-        chatId: selectedChat._id,
-        replyTo: replyMessage ? replyMessage._id : null
+        chatId: selectedChat._id
       });
       socket.emit("send-message", res.data);
       setMessages([...messages, res.data]);
       setNewMessage("");
-      setReplyMessage(null);
       socket.emit("stop-typing", selectedChat._id);
     } catch (err) {
       console.error("Failed to send message:", err);
@@ -299,7 +331,19 @@ export default function Users() {
   };
 
   const getSender = (loggedUser, users) => {
-    return users[0]._id === loggedUser._id ? users[1] : users[0];
+    if (!users || !loggedUser) return { username: "Unknown User", avatar: "", email: "" };
+
+    // For non-group chats, users array should have two users.
+    if (users.length >= 2) {
+      const user1 = users[0];
+      const user2 = users[1];
+      if (user1?._id === loggedUser._id) {
+        return user2 || { username: "Deleted User", avatar: "", email: "" };
+      }
+      return user1 || { username: "Deleted User", avatar: "", email: "" };
+    }
+    // Fallback for unexpected data shape
+    return { username: "Unknown User", avatar: "", email: "" };
   };
 
   const renderAvatar = (u) => {
@@ -397,32 +441,47 @@ export default function Users() {
     }
   };
 
-  const handleReply = (msg) => {
-    setReplyMessage(msg);
-    textInputRef.current?.focus();
+  // --- Call Functions ---
+  const callUser = () => {
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+      setStream(stream);
+      if (myVideo.current) myVideo.current.srcObject = stream;
+
+      // To enable calls, install simple-peer: npm install simple-peer
+      // const peer = new Peer({ initiator: true, trickle: false, stream: stream });
+      // peer.on("signal", (data) => {
+      //   socket.emit("callUser", { userToCall: id, signalData: data, from: user._id });
+      // });
+      // peer.on("stream", (stream) => {
+      //   if (userVideo.current) userVideo.current.srcObject = stream;
+      // });
+
+      // socket.on("callAccepted", (signal) => {
+      //   setCallAccepted(true);
+      //   peer.signal(signal);
+      // });
+
+      // connectionRef.current = peer;
+    });
   };
 
-  const handleStarMessage = async (msgId) => {
-    try {
-      const { data } = await api.put("/users/star", { messageId: msgId });
-      setStarredMessages(data);
-    } catch (err) {
-      console.error("Failed to star message", err);
-    }
-  };
+  const answerCall = () => {
+    setCallAccepted(true);
+    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+      setStream(stream);
+      if (myVideo.current) myVideo.current.srcObject = stream;
 
-  const handleForwardMessage = (msg) => {
-    setMessageToForward(msg);
-    setShowForwardModal(true);
-  };
+      // To enable calls, install simple-peer: npm install simple-peer
+      // const peer = new Peer({ initiator: false, trickle: false, stream: stream });
+      // peer.on("signal", (data) => {
+      //   socket.emit("answerCall", { signal: data, to: caller });
+      // });
+      // peer.on("stream", (stream) => {
+      //   userVideo.current.srcObject = stream;
+      // });
 
-  const confirmForward = async (targetChat) => {
-    if (!messageToForward) return;
-    // Send message to targetChat
-    await api.post("/messages", { content: messageToForward.content || messageToForward.message, chatId: targetChat._id });
-    setShowForwardModal(false);
-    setMessageToForward(null);
-    alert("Message forwarded!");
+      // connectionRef.current = peer;
+    });
   };
 
   const filteredMessages = messages.filter(msg => (msg.message || msg.content || "").toLowerCase().includes(messageSearchQuery.toLowerCase()));
@@ -434,13 +493,13 @@ export default function Users() {
   });
 
   return (
-    <div className="chat-layout">
+    <div className="app-container">
       {/* Chat List Sidebar */}
-      <div className="chat-list">
+      <div className="chat-list" ref={sidebarRef} style={{ width: sidebarWidth, flex: "none" }}>
         <div className="sidebar-header">
           <div style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }} onClick={() => navigate("/profile")}>
             {user && renderAvatar(user)}
-            <span className="user-name" style={{ fontWeight: "bold", fontSize: "18px" }}>Chat_Z</span>
+            <span className="sidebar-title-text">Chat_Z</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <button onClick={() => setShowGroupModal(!showGroupModal)} title="New Group" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>👥</button>
@@ -476,18 +535,6 @@ export default function Users() {
               ))}
             </div>
             <button onClick={createGroup} style={{width: "100%"}}>Create Group</button>
-          </div>
-        )}
-
-        {showForwardModal && (
-          <div style={{ padding: "10px", background: "#f0f2f5", position: "absolute", top: "60px", left: 0, width: "100%", height: "100%", zIndex: 20 }}>
-            <h3>Forward to...</h3>
-            <button onClick={() => setShowForwardModal(false)}>Cancel</button>
-            <div style={{ overflowY: "auto", height: "calc(100% - 50px)" }}>
-              {chats.map(chat => (
-                <div key={chat._id} className="user-item" onClick={() => confirmForward(chat)}>{chat.isGroupChat ? chat.chatName : getSender(user, chat.users).username}</div>
-              ))}
-            </div>
           </div>
         )}
 
@@ -541,11 +588,11 @@ export default function Users() {
                 {chat.isGroupChat ? <div className="avatar default-avatar">G</div> : renderAvatar(getSender(user, chat.users))}
                 <div className="user-info">
                   <div className="user-name">
-                    {chat.isGroupChat ? chat.chatName : getSender(user, chat.users).username}
+                    {chat.isGroupChat ? chat.chatName : (getSender(user, chat.users)?.username || "Unknown User")}
                   </div>
                   <div className="user-status">
                     {chat.latestMessage ? (
-                      <span>{chat.latestMessage.content.substring(0, 20)}...</span>
+                      <span>{(chat.latestMessage.content || chat.latestMessage.message || "").substring(0, 20)}...</span>
                     ) : "Start chatting"}
                   </div>
                 </div>
@@ -556,7 +603,7 @@ export default function Users() {
       </div>
 
       {/* Chat Resizer - Drag to resize chat list */}
-      <div className="chat-resizer"></div>
+      <div className="chat-resizer" onMouseDown={startResizing}></div>
 
       {/* Chat Window */}
       {selectedChat ? (
@@ -584,6 +631,7 @@ export default function Users() {
               )}
             </div>
             <div style={{ marginLeft: "auto", display: "flex", gap: "15px", position: "relative" }}>
+               <button title="Video Call" onClick={() => callUser(getSender(user, selectedChat.users)._id)} style={{background:"none", border:"none", cursor:"pointer"}}>📞</button>
                <button title="Search" onClick={() => setShowMessageSearch(true)} style={{background:"none", border:"none", cursor:"pointer"}}>🔍</button>
                <button title="More options" onClick={() => setShowChatMenu(!showChatMenu)} style={{background:"none", border:"none", cursor:"pointer", color: "var(--text-secondary)"}}>⋮</button>
                {showChatMenu && (
@@ -602,37 +650,20 @@ export default function Users() {
           <div className="chat-messages">
             {filteredMessages.map((msg, idx) => (
               <div key={msg._id || idx} className={`message-bubble ${msg.sender._id === user._id ? "me" : "other"}`}>
-                {msg.replyTo && (
-                  <div className="message-quote" onClick={() => { /* Optional: scroll to message */ }}>
-                    <div className="message-quote-sender">{msg.replyTo.sender.username || "User"}</div>
-                    <div>{msg.replyTo.content || msg.replyTo.message}</div>
-                  </div>
-                )}
                 {msg.type === 'image' ? (
                    <img src={`http://localhost:5000/${msg.content}`} alt="shared" style={{maxWidth: "200px", borderRadius: "8px"}} />
                 ) : (
                    msg.message || msg.content
                 )}
-                <span className="message-time">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                <span className="msg-tick" style={{ color: msg.status === "seen" ? "#53bdeb" : "#999" }}>{msg.status === "seen" ? "✓✓" : "✓✓"}</span>
-                <button className="reply-btn" onClick={() => handleReply(msg)} style={{position: "absolute", top: "5px", right: "5px", background: "none", border: "none", cursor: "pointer", opacity: 0.5, fontSize: "10px"}}>↩</button>
-                <div style={{ position: "absolute", top: "5px", right: "25px", display: "flex", gap: "5px" }}>
-                  <button onClick={() => handleStarMessage(msg._id)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px", color: starredMessages.includes(msg._id) ? "gold" : "gray" }}>★</button>
-                  <button onClick={() => handleForwardMessage(msg)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "12px" }}>➡</button>
+                <div className="message-meta">
+                  <span className="message-time">{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <span className="msg-tick" style={{ color: msg.status === "seen" ? "#53bdeb" : "#999" }}>{msg.status === "seen" ? "✓✓" : "✓✓"}</span>
                 </div>
               </div>
             ))}
             <div ref={scrollRef} />
           </div>
           <div className="chat-input-area">
-            {replyMessage && (
-              <div style={{position: "absolute", bottom: "100%", left: "0", width: "100%", zIndex: 5}}>
-                <div className="reply-preview">
-                  <div className="reply-content">Replying to <b>{replyMessage.sender.username}</b>: {replyMessage.message || replyMessage.content}</div>
-                  <button onClick={() => setReplyMessage(null)} style={{background: "none", border: "none", cursor: "pointer"}}>✕</button>
-                </div>
-              </div>
-            )}
             <button onClick={() => fileInputRef.current.click()} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "20px", marginRight: "10px" }}>📎</button>
             <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileUpload} />
             <form onSubmit={handleSendMessage} style={{ display: "flex", width: "100%", padding: 0, background: "transparent", boxShadow: "none" }}>
@@ -672,16 +703,34 @@ export default function Users() {
             </div>
           </div>
         )}
+        {/* --- Call UI --- */}
+        <div>
+          {stream && <video playsInline muted ref={myVideo} autoPlay style={{ width: "300px" }} />}
+        </div>
+        <div>
+          {callAccepted && !callEnded ?
+            <video playsInline ref={userVideo} autoPlay style={{ width: "300px" }} />
+            : null}
+        </div>
+        <div>
+          {receivingCall && !callAccepted ? (
+            <div>
+              <h1>{caller} is calling...</h1>
+              <button onClick={answerCall}>Answer</button>
+            </div>
+          ) : null}
+        </div>
         </>
       ) : (
-        <div className="chat-window" style={{ alignItems: "center", justifyContent: "center", textAlign: "center", borderBottom: "6px solid #00a884", backgroundColor: "#f0f2f5", backgroundImage: "none" }}>
-          <div>
-            <h1 style={{ color: "#41525d", fontWeight: 300, fontSize: "32px" }}>Chat_Z Web</h1>
-            <p style={{ color: "#667781", fontSize: "14px", marginTop: "10px" }}>Send and receive messages without keeping your phone online.</p>
+        <div className="chat-window placeholder-window">
+          <div className="placeholder-content">
+            <img src="/WhatsApp Image 2026-01-23 at 9.56.49 PM.jpeg" alt="Chat Connection" className="placeholder-image" />
+            <h1 className="placeholder-title">Chat_Z Web</h1>
+            <p className="placeholder-subtitle">Send and receive messages without keeping your phone online.<br/>Use Chat_Z on up to 4 linked devices and 1 phone at the same time.</p>
+            <div className="placeholder-footer">
+              <p>🔒 End-to-end encrypted</p>
+            </div>
           </div>
-          <footer style={{ position: "absolute", bottom: "20px", width: "100%", textAlign: "center", color: "#888", fontSize: "12px" }}>
-            <p>&copy; 2026 Chat_Z Inc. All rights reserved.</p>
-          </footer>
         </div>
       )}
     </div>

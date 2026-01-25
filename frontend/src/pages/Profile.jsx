@@ -20,7 +20,7 @@ export default function Profile() {
   };
 
   return (
-    <div className="profile-container">
+    <div className="page-layout">
       <div className="profile-card">
         <div className="profile-header">
           <button 

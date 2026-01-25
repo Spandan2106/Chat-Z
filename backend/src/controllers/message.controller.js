@@ -129,18 +129,19 @@ exports.createGroupChat = async (req, res) => {
 
 exports.fetchChats = async (req, res) => {
   try {
-    Chat.find({ users: { $elemMatch: { $eq: req.user._id } } })
+    if (!req.user) return res.status(400).send("User not authenticated");
+
+    let results = await Chat.find({ users: { $elemMatch: { $eq: req.user._id } } })
       .populate("users", "-password")
       .populate("groupAdmin", "-password")
       .populate("latestMessage")
-      .sort({ updatedAt: -1 })
-      .then(async (results) => {
-        results = await User.populate(results, {
-          path: "latestMessage.sender",
-          select: "username avatar email",
-        });
-        res.status(200).send(results);
-      });
+      .sort({ updatedAt: -1 });
+
+    results = await User.populate(results, {
+      path: "latestMessage.sender",
+      select: "username avatar email",
+    });
+    res.status(200).send(results);
   } catch (error) {
     res.status(400).send(error.message);
   }

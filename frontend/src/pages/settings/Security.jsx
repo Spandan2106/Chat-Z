@@ -1,10 +1,8 @@
-import { useNavigate } from "react-router-dom";
 import { useState, useEffect, useCallback } from "react";
 import api from "../../api/axios";
 import { useAuth } from "../../context/AuthContext";
 
 export default function Security() {
-  const navigate = useNavigate();
   const { user } = useAuth();
   const [settings, setSettings] = useState({
     twoFactorEnabled: false,
@@ -103,17 +101,14 @@ export default function Security() {
 
   if (loading) {
     return (
-      <div className="settings-page-container">
-        <div className="settings-back-btn" onClick={() => navigate("/settings")}>← Back</div>
+      <div className="settings-page-container" style={{ padding: '20px' }}>
         <div>Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="settings-page-container">
-      <div className="settings-back-btn" onClick={() => navigate("/settings")}>← Back</div>
-      
+    <div className="settings-page-container" style={{ height: '100%', overflowY: 'auto' }}>
       <div className="settings-page-content">
         <div className="settings-page-header">
           <h1>🔐 Security Settings</h1>
