@@ -7,36 +7,62 @@ export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    // Initialize from localStorage if available
-    const cached = localStorage.getItem("user");
+    // Initialize from sessionStorage if available
+    const cached = sessionStorage.getItem("user");
     return cached ? JSON.parse(cached) : null;
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+
+
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        const token = localStorage.getItem("token");
+        const token = sessionStorage.getItem("token");
+        const cachedUser = sessionStorage.getItem("user");
+
         if (token) {
           api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
+
+          // Try to validate token with backend
           try {
             const res = await api.get("/auth/me");
             const userData = res.data.user;
             setUser(userData);
-            localStorage.setItem("user", JSON.stringify(userData));
+            sessionStorage.setItem("user", JSON.stringify(userData));
             setError(null);
           } catch (err) {
-            // Token is invalid, clear it
-            console.error("Auth error:", err);
-            localStorage.removeItem("token");
-            localStorage.removeItem("user");
-            delete api.defaults.headers.common["Authorization"];
-            setUser(null);
+            console.warn("Backend not available, using cached user data:", err.message);
+
+            // If backend is not available but we have cached user data, use it
+            if (cachedUser) {
+              try {
+                const userData = JSON.parse(cachedUser);
+                setUser(userData);
+                setError(null);
+                console.log("Using cached user data for offline mode");
+              } catch (parseErr) {
+                console.error("Invalid cached user data:", parseErr);
+                sessionStorage.removeItem("token");
+                sessionStorage.removeItem("user");
+                delete api.defaults.headers.common["Authorization"];
+                setUser(null);
+              }
+            } else {
+              // No cached data, clear everything
+              sessionStorage.removeItem("token");
+              sessionStorage.removeItem("user");
+              delete api.defaults.headers.common["Authorization"];
+              setUser(null);
+            }
           }
         } else {
           setUser(null);
         }
+      } catch (err) {
+        console.error("Auth initialization error:", err);
+        setUser(null);
       } finally {
         setLoading(false);
       }
@@ -50,9 +76,11 @@ export const AuthProvider = ({ children }) => {
       setError(null);
       const res = await api.post("/auth/login", { email, password });
       const token = res.data.token;
-      localStorage.setItem("token", token);
+      const userData = res.data.user;
+      sessionStorage.setItem("token", token);
+      sessionStorage.setItem("user", JSON.stringify(userData));
       api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-      setUser(res.data.user);
+      setUser(userData);
       return res.data;
     } catch (err) {
       const errorMsg = err.response?.data?.message || "Login failed";
@@ -66,9 +94,11 @@ export const AuthProvider = ({ children }) => {
       setError(null);
       const res = await api.post("/auth/register", { username, email, password, confirmPassword });
       const token = res.data.token;
-      localStorage.setItem("token", token);
+      const userData = res.data.user;
+      sessionStorage.setItem("token", token);
+      sessionStorage.setItem("user", JSON.stringify(userData));
       api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
-      setUser(res.data.user);
+      setUser(userData);
       return res.data;
     } catch (err) {
       const errorMsg = err.response?.data?.message || "Registration failed";
@@ -83,8 +113,8 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       console.error("Logout error:", err);
     } finally {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("user");
       localStorage.removeItem("chatMessages");
       localStorage.removeItem("chatsList");
       delete api.defaults.headers.common["Authorization"];

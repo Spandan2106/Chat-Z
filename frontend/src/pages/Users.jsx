@@ -7,10 +7,10 @@ import { socket } from "../socket/socket";
 export default function Users() {
   const { user, logout } = useAuth();
   const [chats, setChats] = useState([]);
-  // eslint-disable-next-line no-unused-vars
   const [allUsers, setAllUsers] = useState([]);
   const [searchResults, setSearchResults] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchResultLimit, setSearchResultLimit] = useState(10);
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState("");
@@ -37,7 +37,8 @@ export default function Users() {
   const [filterType, setFilterType] = useState("all"); // 'all', 'users', 'groups'
   const [sidebarWidth, setSidebarWidth] = useState(350);
   const sidebarRef = useRef(null);
-  const [starredMessages, setStarredMessages] = useState([]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  // const [starredMessages, setStarredMessages] = useState([]);
 
   // --- Call State ---
   const [stream, setStream] = useState();
@@ -90,11 +91,7 @@ export default function Users() {
     };
   }, [user]);
 
-  useEffect(() => {
-    if (user?.starredMessages) {
-      setStarredMessages(user.starredMessages);
-    }
-  }, [user?.starredMessages]);
+
 
   // Real-time message and typing handlers
   useEffect(() => {
@@ -145,7 +142,7 @@ export default function Users() {
       setOnlineUsers(prev => prev.filter(id => id !== userId));
     };
 
-    socket.on("receive-message", messageHandler);
+    socket.on("message received", messageHandler);
     socket.on("user-typing", typingHandler);
     socket.on("stop-typing", stopTypingHandler);
     socket.on("user-online", userOnlineHandler);
@@ -193,7 +190,7 @@ export default function Users() {
     const fetchUsers = async () => {
       try {
         const res = await api.get("/users");
-        setAllUsers(res.data || []);
+        setAllUsers(Array.isArray(res.data) ? res.data : []);
       } catch (err) {
         console.error("Failed to fetch users:", err);
       }
@@ -227,6 +224,21 @@ export default function Users() {
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const usersRes = await api.get("/users");
+      setAllUsers(Array.isArray(usersRes.data) ? usersRes.data : []);
+
+      const chatsRes = await api.get("/messages/chat");
+      setChats(chatsRes.data || []);
+    } catch (err) {
+      console.error("Failed to refresh:", err);
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const handleSendMessage = async (e) => {
@@ -289,16 +301,30 @@ export default function Users() {
   };
 
   const handleSearch = async (e) => {
-    setSearchQuery(e.target.value);
-    if (!e.target.value) {
+    const query = e.target.value;
+    setSearchQuery(query);
+    setSearchResultLimit(10);
+    if (!query) {
       setSearchResults([]);
       return;
     }
-    try {
-      const { data } = await api.get(`/users?search=${e.target.value}`);
-      setSearchResults(data);
-    } catch (error) {
-      console.error(error);
+
+    if (allUsers && allUsers.length > 0) {
+      const results = allUsers.filter((u) => {
+        const username = u.username ? u.username.toLowerCase() : "";
+        const email = u.email ? u.email.toLowerCase() : "";
+        const q = query.toLowerCase();
+        return (username.includes(q) || email.includes(q)) && u._id !== user._id;
+      });
+      setSearchResults(results);
+    } else {
+      try {
+        const { data } = await api.get(`/users?search=${query}`);
+        setSearchResults(data);
+      } catch (error) {
+        console.error("Search failed", error);
+        setSearchResults([]);
+      }
     }
   };
 
@@ -489,6 +515,11 @@ export default function Users() {
   const filteredChats = chats.filter(chat => {
     if (filterType === "groups") return chat.isGroupChat;
     if (filterType === "users") return !chat.isGroupChat;
+    if (filterType === "saved") {
+      if (chat.isGroupChat) return false;
+      const otherUser = getSender(user, chat.users);
+      return user?.contacts?.some(c => (typeof c === 'string' ? c : c._id) === otherUser._id);
+    }
     return true;
   });
 
@@ -504,6 +535,7 @@ export default function Users() {
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
             <button onClick={() => setShowGroupModal(!showGroupModal)} title="New Group" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>👥</button>
             <button onClick={() => navigate("/settings")} title="Settings" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>⚙️</button>
+            <button onClick={handleRefresh} title="Refresh List" disabled={isRefreshing} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px", opacity: isRefreshing ? 0.5 : 1 }}>🔄</button>
             {user?.isAdmin && (
               <button onClick={() => navigate("/admin")} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "18px" }} title="Admin Panel">🛡️</button>
             )}
@@ -517,15 +549,32 @@ export default function Users() {
           </div>
         </div>
 
-        <div style={{ display: "flex", padding: "10px", gap: "10px", borderBottom: "1px solid #e9edef" }}>
-          <button onClick={() => setFilterType("all")} style={{ flex: 1, padding: "8px", borderRadius: "20px", border: "none", background: filterType === "all" ? "#00a884" : "#e9edef", color: filterType === "all" ? "white" : "black", cursor: "pointer" }}>All</button>
-          <button onClick={() => setFilterType("users")} style={{ flex: 1, padding: "8px", borderRadius: "20px", border: "none", background: filterType === "users" ? "#00a884" : "#e9edef", color: filterType === "users" ? "white" : "black", cursor: "pointer" }}>Users</button>
-          <button onClick={() => setFilterType("groups")} style={{ flex: 1, padding: "8px", borderRadius: "20px", border: "none", background: filterType === "groups" ? "#00a884" : "#e9edef", color: filterType === "groups" ? "white" : "black", cursor: "pointer" }}>Groups</button>
+        <div style={{ display: "flex", padding: "10px", gap: "10px", borderBottom: "1px solid #e9edef", overflowX: "auto" }}>
+          <button onClick={() => setFilterType("all")} style={{ flex: 1, padding: "8px", borderRadius: "20px", border: "none", background: filterType === "all" ? "#00a884" : "#e9edef", color: filterType === "all" ? "white" : "black", cursor: "pointer", whiteSpace: "nowrap" }}>All</button>
+          <button onClick={() => setFilterType("users")} style={{ flex: 1, padding: "8px", borderRadius: "20px", border: "none", background: filterType === "users" ? "#00a884" : "#e9edef", color: filterType === "users" ? "white" : "black", cursor: "pointer", whiteSpace: "nowrap" }}>Users</button>
+          <button onClick={() => setFilterType("groups")} style={{ flex: 1, padding: "8px", borderRadius: "20px", border: "none", background: filterType === "groups" ? "#00a884" : "#e9edef", color: filterType === "groups" ? "white" : "black", cursor: "pointer", whiteSpace: "nowrap" }}>Groups</button>
+          <button onClick={() => setFilterType("saved")} style={{ flex: 1, padding: "8px", borderRadius: "20px", border: "none", background: filterType === "saved" ? "#00a884" : "#e9edef", color: filterType === "saved" ? "white" : "black", cursor: "pointer", whiteSpace: "nowrap" }}>Saved</button>
         </div>
         
         {showGroupModal && (
           <div style={{ padding: "10px", background: "#f0f2f5" }}>
             <input className="chat-input" placeholder="Group Name" value={groupName} onChange={(e) => setGroupName(e.target.value)} style={{width: "100%", marginBottom: "5px"}} />
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "10px" }}>
+              <button 
+                onClick={() => {
+                  const candidates = allUsers.filter(u => u._id !== user._id);
+                  if (selectedGroupUsers.length === candidates.length) {
+                    setSelectedGroupUsers([]);
+                  } else {
+                    setSelectedGroupUsers(candidates);
+                  }
+                }}
+                style={{ fontSize: "12px", padding: "5px 10px", background: "#e9edef", color: "black", border: "none", borderRadius: "4px", cursor: "pointer" }}
+              >
+                {selectedGroupUsers.length === allUsers.filter(u => u._id !== user._id).length ? "Deselect All" : "Select All"}
+              </button>
+              <span style={{ fontSize: "12px", alignSelf: "center", color: "var(--text-secondary)" }}>{selectedGroupUsers.length} selected</span>
+            </div>
             <div className="group-chips">
               {selectedGroupUsers.map(u => (
                 <div key={u._id} className="chip">
@@ -550,34 +599,52 @@ export default function Users() {
         </div>
         <div className="user-list">
           {/* Search Results */}
-          {searchQuery.length > 0 ? searchResults.map((u) => (
-            <div
-              key={u._id}
-              className="user-item"
-              style={showGroupModal && selectedGroupUsers.find(sel => sel._id === u._id) ? { backgroundColor: "#d9fdd3" } : {}}
-              onClick={() => {
-                if (showGroupModal) {
-                  if (selectedGroupUsers.find(sel => sel._id === u._id)) {
-                    setSelectedGroupUsers(selectedGroupUsers.filter(sel => sel._id !== u._id));
-                  } else {
-                    setSelectedGroupUsers([...selectedGroupUsers, u]);
-                  }
-                } else {
-                  accessChat(u._id);
-                }
-              }}
-            >
-              {renderAvatar(u)}
-              <div className="user-info">
-                <div className="user-name">
-                  {u.username}
-                  {u.isAdmin && <span style={{ fontSize: "10px", backgroundColor: "#00a884", color: "white", padding: "2px 5px", borderRadius: "4px", marginLeft: "5px" }}>Admin</span>}
-                </div>
-                <div className="user-status">{u.about || "Available"}</div>
-                {!showGroupModal && <button onClick={(e) => handleAddContact(e, u._id)} style={{ marginLeft: "auto", background: "#00a884", color: "white", border: "none", padding: "5px 10px", borderRadius: "3px", cursor: "pointer", fontSize: "12px" }}>Add</button>}
+          {searchQuery.length > 0 ? (
+            searchResults.length > 0 ? (
+              <>
+                {searchResults.slice(0, searchResultLimit).map((u) => (
+                  <div
+                    key={u._id}
+                    className="user-item"
+                    style={showGroupModal && selectedGroupUsers.find(sel => sel._id === u._id) ? { backgroundColor: "#d9fdd3" } : {}}
+                    onClick={() => {
+                      if (showGroupModal) {
+                        if (selectedGroupUsers.find(sel => sel._id === u._id)) {
+                          setSelectedGroupUsers(selectedGroupUsers.filter(sel => sel._id !== u._id));
+                        } else {
+                          setSelectedGroupUsers([...selectedGroupUsers, u]);
+                        }
+                      } else {
+                        accessChat(u._id);
+                      }
+                    }}
+                  >
+                    {renderAvatar(u)}
+                    <div className="user-info">
+                      <div className="user-name">
+                        {u.username}
+                        {u.isAdmin && <span style={{ fontSize: "10px", backgroundColor: "#00a884", color: "white", padding: "2px 5px", borderRadius: "4px", marginLeft: "5px" }}>Admin</span>}
+                      </div>
+                      <div className="user-status">{u.about || "Available"}</div>
+                      {!showGroupModal && <button onClick={(e) => handleAddContact(e, u._id)} style={{ marginLeft: "auto", background: "#00a884", color: "white", border: "none", padding: "5px 10px", borderRadius: "3px", cursor: "pointer", fontSize: "12px" }}>Add</button>}
+                    </div>
+                  </div>
+                ))}
+                {searchResults.length > searchResultLimit && (
+                  <button 
+                    onClick={() => setSearchResultLimit(prev => prev + 10)}
+                    style={{ width: "100%", padding: "10px", background: "transparent", border: "none", color: "#00a884", cursor: "pointer", fontWeight: "bold" }}
+                  >
+                    Load More
+                  </button>
+                )}
+              </>
+            ) : (
+              <div style={{ padding: "20px", textAlign: "center", color: "var(--text-secondary)" }}>
+                No users found matching "{searchQuery}"
               </div>
-            </div>
-          )) : (
+            )
+          ) : (
             /* Chat List */
             filteredChats.map((chat) => (
               <div
@@ -589,6 +656,17 @@ export default function Users() {
                 <div className="user-info">
                   <div className="user-name">
                     {chat.isGroupChat ? chat.chatName : (getSender(user, chat.users)?.username || "Unknown User")}
+                    {!chat.isGroupChat && onlineUsers.includes(getSender(user, chat.users)._id) && (
+                      <span title="Online" style={{
+                        height: '10px',
+                        width: '10px',
+                        backgroundColor: '#25D366',
+                        borderRadius: '50%',
+                        display: 'inline-block',
+                        marginLeft: '8px',
+                        border: '1px solid white'
+                      }}></span>
+                    )}
                   </div>
                   <div className="user-status">
                     {chat.latestMessage ? (
@@ -724,7 +802,7 @@ export default function Users() {
       ) : (
         <div className="chat-window placeholder-window">
           <div className="placeholder-content">
-            <img src="/WhatsApp Image 2026-01-23 at 9.56.49 PM.jpeg" alt="Chat Connection" className="placeholder-image" />
+            <img src="/WhatsApp Image 2026-01-26 at 9.13.02 PM.jpeg" alt="Chat Connection" className="placeholder-image" />
             <h1 className="placeholder-title">Chat_Z Web</h1>
             <p className="placeholder-subtitle">Send and receive messages without keeping your phone online.<br/>Use Chat_Z on up to 4 linked devices and 1 phone at the same time.</p>
             <div className="placeholder-footer">

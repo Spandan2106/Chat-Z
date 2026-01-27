@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react";
-import io from "socket.io-client";
+import { socket } from "../socket/socket";
 import { ChatContext } from "./ChatContextFile";
-
-let socket;
 
 export const ChatProvider = ({ children }) => {
   const [onlineUsers, setOnlineUsers] = useState([]);
@@ -30,13 +28,6 @@ export const ChatProvider = ({ children }) => {
   }, [chats]);
 
   useEffect(() => {
-    socket = io("http://localhost:5000", {
-      reconnectionDelay: 1000,
-      reconnection: true,
-      reconnectionAttempts: 10,
-      transports: ["websocket"],
-    });
-
     // User online/offline events
     socket.on("online-users", users => {
       setOnlineUsers(users);
@@ -46,7 +37,7 @@ export const ChatProvider = ({ children }) => {
     });
 
     // Message events
-    socket.on("receive-message", msg => {
+    socket.on("message received", msg => {
       setMessages(prev => {
         const exists = prev.some(m => m._id === msg._id);
         return exists ? prev : [...prev, msg];
@@ -104,11 +95,11 @@ export const ChatProvider = ({ children }) => {
   };
 
   const sendTyping = (chatId) => {
-    socket.emit("typing", chatId);
+    socket.emit("typing", { chatId });
   };
 
   const stopTyping = (chatId) => {
-    socket.emit("stop-typing", chatId);
+    socket.emit("stop-typing", { chatId });
   };
 
   const updateChatsList = (newChats) => {

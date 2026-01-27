@@ -1,9 +1,9 @@
 import { io } from "socket.io-client";
 
-// Get user from localStorage if available
+// Get user from sessionStorage if available
 const getUserFromStorage = () => {
   try {
-    const user = localStorage.getItem("user");
+    const user = sessionStorage.getItem("user");
     return user ? JSON.parse(user) : null;
   } catch {
     return null;

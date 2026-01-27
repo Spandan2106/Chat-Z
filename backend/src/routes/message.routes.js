@@ -1,6 +1,6 @@
 const router = require("express").Router();
 const auth = require("../middlewares/auth.middleware");
-const { sendMessage, sendMediaMessage, allMessages, accessChat, fetchChats, createGroupChat, deleteAllChats, deleteChatHistory } = require("../controllers/message.controller");
+const { sendMessage, sendMediaMessage, allMessages, accessChat, fetchChats, createGroupChat, deleteAllChats, deleteChatHistory, deleteForMe, deleteForEveryone } = require("../controllers/message.controller");
 const multer = require("multer");
 const upload = multer({ dest: "uploads/" });
 
@@ -18,5 +18,8 @@ router.post(
   upload.single("file"),
   sendMediaMessage
 );
+
+router.delete("/:messageId/delete-for-me", auth, deleteForMe);
+router.delete("/:messageId/delete-for-everyone", auth, deleteForEveryone);
 
 module.exports = router;

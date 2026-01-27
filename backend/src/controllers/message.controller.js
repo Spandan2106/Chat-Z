@@ -166,3 +166,57 @@ exports.deleteChatHistory = async (req, res) => {
     res.status(400).send(error.message);
   }
 };
+
+exports.deleteForMe = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.user._id;
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    // Check if user is part of the chat
+    const chat = await Chat.findById(message.chatId);
+    if (!chat.users.includes(userId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    // Add user to deletedFor array if not already there
+    if (!message.deletedFor.includes(userId)) {
+      message.deletedFor.push(userId);
+      await message.save();
+    }
+
+    res.json({ message: "Message deleted for you" });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.deleteForEveryone = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.user._id;
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    // Only sender can delete for everyone
+    if (message.sender.toString() !== userId.toString()) {
+      return res.status(403).json({ error: "Only sender can delete for everyone" });
+    }
+
+    // Get all users in the chat
+    const chat = await Chat.findById(message.chatId);
+    message.deletedFor = chat.users;
+    await message.save();
+
+    res.json({ message: "Message deleted for everyone" });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
