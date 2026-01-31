@@ -5,11 +5,12 @@ const Chat = require("../models/Chat.model");
 exports.sendMediaMessage = async (req, res) => {
   try {
     const { chatId } = req.body;
+    const contentPath = req.file.path.replace(/\\/g, "/");
     let message = await Message.create({
       sender: req.user._id,
-      content: req.file.path,
+      content: contentPath,
       chatId: chatId,
-      type: "image"
+      type: req.file.mimetype.startsWith("audio") ? "audio" : "image"
     });
     message = await message.populate("sender", "username avatar");
     message = await message.populate("chatId");
@@ -20,8 +21,71 @@ exports.sendMediaMessage = async (req, res) => {
   }
 };
 
+exports.renameGroup = async (req, res) => {
+  const { chatId, chatName } = req.body;
+  try {
+    const updatedChat = await Chat.findByIdAndUpdate(
+      chatId,
+      { chatName },
+      { new: true }
+    )
+      .populate("users", "-password")
+      .populate("groupAdmin", "-password");
+
+    if (!updatedChat) {
+      res.status(404).send("Chat Not Found");
+    } else {
+      res.json(updatedChat);
+    }
+  } catch (error) {
+    res.status(400).send(error.message);
+  }
+};
+
+exports.addToGroup = async (req, res) => {
+  const { chatId, userId } = req.body;
+  try {
+    const added = await Chat.findByIdAndUpdate(
+      chatId,
+      { $push: { users: userId } },
+      { new: true }
+    )
+      .populate("users", "-password")
+      .populate("groupAdmin", "-password");
+
+    if (!added) {
+      res.status(404).send("Chat Not Found");
+    } else {
+      res.json(added);
+    }
+  } catch (error) {
+    res.status(400).send(error.message);
+  }
+};
+
+exports.removeFromGroup = async (req, res) => {
+  const { chatId, userId } = req.body;
+  try {
+    const removed = await Chat.findByIdAndUpdate(
+      chatId,
+      { $pull: { users: userId } },
+      { new: true }
+    )
+      .populate("users", "-password")
+      .populate("groupAdmin", "-password");
+
+    if (!removed) {
+      res.status(404).send("Chat Not Found");
+    } else {
+      res.json(removed);
+    }
+  } catch (error) {
+    res.status(400).send(error.message);
+  }
+};
+
 exports.sendMessage = async (req, res) => {
-  const { content, chatId, replyTo } = req.body;
+  const { content, chatId, replyTo, isForwarded, type } = req.body;
 
   if (!content || !chatId) {
     return res.sendStatus(400);
@@ -32,7 +96,8 @@ exports.sendMessage = async (req, res) => {
       sender: req.user._id,
       content: content,
       chatId: chatId,
-      type: "text"
+      type: type || "text",
+      isForwarded: isForwarded || false
     };
 
     if (replyTo) messageData.replyTo = replyTo;
@@ -40,7 +105,12 @@ exports.sendMessage = async (req, res) => {
 
     message = await message.populate("sender", "username avatar");
     message = await message.populate("chatId");
-    message = await message.populate("replyTo");
+    if (message.replyTo) {
+      message = await message.populate({
+        path: 'replyTo',
+        populate: { path: 'sender', select: 'username' }
+      });
+    }
     message = await User.populate(message, {
       path: "chatId.users",
       select: "username avatar email",
@@ -55,7 +125,10 @@ exports.sendMessage = async (req, res) => {
 
 exports.allMessages = async (req, res) => {
   try {
-    const messages = await Message.find({ chatId: req.params.chatId })
+    const messages = await Message.find({ 
+      chatId: req.params.chatId,
+      deletedFor: { $ne: req.user._id } 
+    })
       .populate("sender", "username avatar email")
       .populate("chatId");
     res.json(messages);
@@ -110,13 +183,13 @@ exports.createGroupChat = async (req, res) => {
   if (users.length < 1) {
     return res.status(400).send("At least 1 user is required to form a group chat");
   }
-  users.push(req.user);
+  users.push(req.user._id);
   try {
     const groupChat = await Chat.create({
       chatName: req.body.name,
       users: users,
       isGroupChat: true,
-      groupAdmin: req.user,
+      groupAdmin: req.user._id,
     });
     const fullGroupChat = await Chat.findOne({ _id: groupChat._id })
       .populate("users", "-password")
@@ -210,12 +283,25 @@ exports.deleteForEveryone = async (req, res) => {
       return res.status(403).json({ error: "Only sender can delete for everyone" });
     }
 
-    // Get all users in the chat
-    const chat = await Chat.findById(message.chatId);
-    message.deletedFor = chat.users;
+    message.content = "This message was deleted";
+    message.type = "text";
+    message.isDeleted = true;
     await message.save();
+    
+    await message.populate("sender", "username avatar email");
 
-    res.json({ message: "Message deleted for everyone" });
+    res.json(message);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.markMessagesAsRead = async (req, res) => {
+  const { chatId } = req.body;
+  const userId = req.user._id;
+  try {
+    await Message.updateMany({ chatId: chatId, sender: { $ne: userId }, status: { $ne: "seen" } }, { $set: { status: "seen" }, $addToSet: { readBy: userId } });
+    res.status(200).json({ message: "Messages marked as read" });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

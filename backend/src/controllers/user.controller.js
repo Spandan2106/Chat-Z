@@ -2,21 +2,30 @@ const User = require("../models/user.model");
 
 exports.getUsers = async (req, res) => {
   try {
+    const escapeRegex = (text) => {
+      return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+    };
+
     const keyword = req.query.search
       ? {
           $or: [
-            { username: { $regex: req.query.search, $options: "i" } },
-            { email: { $regex: req.query.search, $options: "i" } },
+            { username: { $regex: escapeRegex(req.query.search), $options: "i" } },
+            { email: { $regex: escapeRegex(req.query.search), $options: "i" } },
           ],
         }
       : {};
 
     // If admin, return all users; else return users excluding current user
-    const query = req.user.isAdmin ? keyword : { ...keyword, _id: { $ne: req.user._id } };
+    const query = (req.user && req.user.isAdmin) ? keyword : { ...keyword };
+    
+    if (req.user && req.user._id && !req.user.isAdmin) {
+      query._id = { $ne: req.user._id };
+    }
 
     const users = await User.find(query).select("-password");
     res.send(users);
   } catch (err) {
+    console.error("Error in getUsers:", err);
     res.status(500).json({ error: err.message });
   }
 };

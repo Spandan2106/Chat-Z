@@ -1,4 +1,5 @@
 const express = require("express");
+const path = require("path");
 const helmet = require("helmet");
 const cors = require("cors");
 
@@ -16,8 +17,10 @@ app.use("/api/auth", require("./routes/auth.routes"));
 app.use("/api/users", require("./routes/user.routes"));
 app.use("/api/chats", require("./routes/chat.routes"));
 app.use("/api/messages", require("./routes/message.routes"));
-// Add this line inside app.js
-app.use("/users", require("./routes/user.routes"));
+app.use("/api/status", require("./routes/status.routes"));
 
+// Add this line to serve static files from the 'uploads' directory
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
+// ... rest of your server setup ...
 module.exports = app;
