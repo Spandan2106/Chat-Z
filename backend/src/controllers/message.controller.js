@@ -35,6 +35,12 @@ exports.renameGroup = async (req, res) => {
     if (!updatedChat) {
       res.status(404).send("Chat Not Found");
     } else {
+      // Notify all users in the group of the name change
+      const io = req.app.get('io');
+      updatedChat.users.forEach(user => {
+        io.to(user._id.toString()).emit('chat-group-update', updatedChat);
+      });
+
       res.json(updatedChat);
     }
   } catch (error) {
@@ -56,6 +62,12 @@ exports.addToGroup = async (req, res) => {
     if (!added) {
       res.status(404).send("Chat Not Found");
     } else {
+      // Notify all users in the group that a member was added
+      const io = req.app.get('io');
+      added.users.forEach(user => {
+        io.to(user._id.toString()).emit('chat-group-update', added);
+      });
+
       res.json(added);
     }
   } catch (error) {
@@ -77,6 +89,14 @@ exports.removeFromGroup = async (req, res) => {
     if (!removed) {
       res.status(404).send("Chat Not Found");
     } else {
+      const io = req.app.get('io');
+      // Notify remaining users of the change
+      removed.users.forEach(user => {
+        io.to(user._id.toString()).emit('chat-group-update', removed);
+      });
+      // Notify the removed user so their UI can update
+      io.to(userId.toString()).emit('chat-group-update', removed);
+
       res.json(removed);
     }
   } catch (error) {
@@ -176,26 +196,58 @@ exports.accessChat = async (req, res) => {
 };
 
 exports.createGroupChat = async (req, res) => {
+  console.log("Create group request body:", req.body);
+  console.log("User:", req.user);
+
   if (!req.body.users || !req.body.name) {
+    console.log("Missing fields:", { users: req.body.users, name: req.body.name });
     return res.status(400).send({ message: "Please Fill all the fields" });
   }
-  var users = JSON.parse(req.body.users);
-  if (users.length < 1) {
-    return res.status(400).send("At least 1 user is required to form a group chat");
-  }
-  users.push(req.user._id);
+
   try {
+    // Robust parsing for users array
+    let users;
+    try {
+      users = typeof req.body.users === 'string' ? JSON.parse(req.body.users) : req.body.users;
+    } catch (e) {
+      return res.status(400).send("Invalid users data format");
+    }
+    
+    console.log("Parsed users:", users);
+
+    if (!users || users.length < 1) {
+      return res.status(400).send("At least 1 user is required to form a group chat");
+    }
+    users.push(req.user._id);
+
+    // Ensure unique users to prevent duplicates and define the variable for later use
+    const uniqueUsers = [...new Set(users)];
+
     const groupChat = await Chat.create({
       chatName: req.body.name,
-      users: users,
+      users: uniqueUsers,
       isGroupChat: true,
       groupAdmin: req.user._id,
     });
+
+    console.log("Group chat created:", groupChat);
+
     const fullGroupChat = await Chat.findOne({ _id: groupChat._id })
       .populate("users", "-password")
       .populate("groupAdmin", "-password");
+
+    console.log("Full group chat:", fullGroupChat);
+
+    // Notify all group members about the new group
+    const io = req.app.get('io');
+    uniqueUsers.forEach(userId => {
+      console.log("Notifying user:", userId);
+      io.to(userId.toString()).emit('chat-group-update', fullGroupChat);
+    });
+
     res.status(200).json(fullGroupChat);
   } catch (error) {
+    console.error("Error creating group:", error);
     res.status(400).send(error.message);
   }
 };
@@ -293,6 +345,69 @@ exports.deleteForEveryone = async (req, res) => {
     res.json(message);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+};
+
+exports.deleteGroup = async (req, res) => {
+  const { chatId } = req.params;
+  const userId = req.user._id;
+
+  try {
+    const chat = await Chat.findById(chatId);
+
+    if (!chat) {
+      return res.status(404).json({ message: "Chat not found" });
+    }
+
+    // Check if user is admin
+    if (chat.groupAdmin.toString() !== userId.toString()) {
+      return res.status(403).json({ message: "Only the admin can delete the group" });
+    }
+
+    await Chat.findByIdAndDelete(chatId);
+    await Message.deleteMany({ chatId: chatId });
+
+    // Notify all members that the group is deleted
+    const io = req.app.get('io');
+    chat.users.forEach(userId => {
+      io.to(userId.toString()).emit('chat-group-deleted', chatId);
+    });
+
+    res.status(200).json({ message: "Group deleted successfully", chatId: chatId });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.transferGroupAdmin = async (req, res) => {
+  const { chatId, userId } = req.body;
+  try {
+    const chat = await Chat.findById(chatId);
+    if (!chat) return res.status(404).send("Chat Not Found");
+
+    if (chat.groupAdmin.toString() !== req.user._id.toString()) {
+      return res.status(403).send("Only admin can transfer rights");
+    }
+
+    const updatedChat = await Chat.findByIdAndUpdate(
+      chatId,
+      { groupAdmin: userId },
+      { new: true }
+    )
+      .populate("users", "-password")
+      .populate("groupAdmin", "-password");
+
+    if (!updatedChat) {
+      res.status(404).send("Chat Not Found");
+    } else {
+      const io = req.app.get('io');
+      updatedChat.users.forEach(user => {
+        io.to(user._id.toString()).emit('chat-group-update', updatedChat);
+      });
+      res.json(updatedChat);
+    }
+  } catch (error) {
+    res.status(400).send(error.message);
   }
 };
 

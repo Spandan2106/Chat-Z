@@ -1,45 +1,77 @@
 module.exports = (io, socket) => {
   // Typing indicator
   socket.on("typing", (data) => {
-    const { chatId, username } = data;
-    if (socket.handshake.auth?.user && chatId) {
-      socket.broadcast.to(chatId).emit("user-typing", { 
-        username: socket.handshake.auth.user.username,
-        userId: socket.handshake.auth.user._id,
-        chatId 
+    try {
+      const { chatId } = data;
+      const user = socket.handshake.auth?.user;
+      
+      if (!user || !user._id || !chatId) {
+        console.error("Invalid typing data:", { user, chatId });
+        return;
+      }
+      
+      console.log(`User ${user.username} typing in chat ${chatId}`);
+      
+      // Broadcast to all users in the chat room (excluding sender)
+      socket.to(chatId).emit("user-typing", {
+        username: user.username,
+        userId: user._id,
+        chatId: chatId
       });
+    } catch (error) {
+      console.error("Error in typing event:", error);
     }
   });
 
   // Stop typing indicator
   socket.on("stop-typing", (data) => {
-    const { chatId } = data;
-    if (socket.handshake.auth?.user && chatId) {
-      socket.broadcast.to(chatId).emit("stop-typing", { 
-        userId: socket.handshake.auth.user._id,
-        chatId 
+    try {
+      const { chatId } = data;
+      const user = socket.handshake.auth?.user;
+      
+      if (!user || !user._id || !chatId) {
+        console.error("Invalid stop-typing data:", { user, chatId });
+        return;
+      }
+      
+      console.log(`User ${user.username} stopped typing in chat ${chatId}`);
+      
+      // Broadcast to all users in the chat room
+      socket.to(chatId).emit("stop-typing", {
+        userId: user._id,
+        chatId: chatId
       });
+    } catch (error) {
+      console.error("Error in stop-typing event:", error);
     }
   });
 
   // User online status
   socket.on("user-online", (userData) => {
-    io.emit("user-online", { 
-      userId: userData._id,
-      username: userData.username 
-    });
+    if (userData && userData._id) {
+      console.log("User online:", userData._id);
+      io.emit("user-online", {
+        userId: userData._id,
+        username: userData.username
+      });
+    }
   });
 
   // User offline status
   socket.on("user-offline", (userData) => {
-    io.emit("user-offline", { userId: userData._id });
+    if (userData && userData._id) {
+      console.log("User offline:", userData._id);
+      io.emit("user-offline", { userId: userData._id });
+    }
   });
 
   // Handle disconnect event
   socket.on("disconnect", () => {
-    // Get user from socket handshake
-    if (socket.handshake.auth?.user) {
-      io.emit("user-offline", { userId: socket.handshake.auth.user._id });
+    const user = socket.handshake.auth?.user;
+    if (user && user._id) {
+      console.log("User disconnected:", user._id);
+      io.emit("user-offline", { userId: user._id });
     }
   });
 };
+

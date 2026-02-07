@@ -18,6 +18,7 @@ app.use("/api/users", require("./routes/user.routes"));
 app.use("/api/chats", require("./routes/chat.routes"));
 app.use("/api/messages", require("./routes/message.routes"));
 app.use("/api/status", require("./routes/status.routes"));
+app.use("/api/settings", require("./routes/settings.routes"));
 
 // Add this line to serve static files from the 'uploads' directory
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));

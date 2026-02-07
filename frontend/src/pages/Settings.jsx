@@ -27,36 +27,43 @@ export default function Settings() {
         <div className="settings-nav-item" onClick={() => navigate("/users")} style={{ fontWeight: "bold", color: "var(--primary-green)" }}>
           <span>←</span> Back to Chat
         </div>
-        <div 
-          className="settings-nav-item" 
+        <div
+          className="settings-nav-item"
           onClick={() => navigate("/settings/notifications")}
           style={location.pathname.includes("notifications") ? { background: "var(--glass-bg)", borderLeft: "4px solid var(--primary-green)" } : {}}
         >
           <span>🔔</span> Notifications
         </div>
-        <div 
-          className="settings-nav-item" 
+        <div
+          className="settings-nav-item"
           onClick={() => navigate("/settings/privacy")}
           style={location.pathname.includes("privacy") ? { background: "var(--glass-bg)", borderLeft: "4px solid var(--primary-green)" } : {}}
         >
           <span>🔒</span> Privacy
         </div>
-        <div 
-          className="settings-nav-item" 
+        <div
+          className="settings-nav-item"
           onClick={() => navigate("/settings/security")}
           style={location.pathname.includes("security") ? { background: "var(--glass-bg)", borderLeft: "4px solid var(--primary-green)" } : {}}
         >
           <span>🔐</span> Security
         </div>
-        <div 
-          className="settings-nav-item" 
+        <div
+          className="settings-nav-item"
           onClick={() => navigate("/settings/chat-history")}
           style={location.pathname.includes("chat-history") ? { background: "var(--glass-bg)", borderLeft: "4px solid var(--primary-green)" } : {}}
         >
           <span>📁</span> Chat History
         </div>
-        <div 
-          className="settings-nav-item" 
+        <div
+          className="settings-nav-item"
+          onClick={() => navigate("/settings/device-linking")}
+          style={location.pathname.includes("device-linking") ? { background: "var(--glass-bg)", borderLeft: "4px solid var(--primary-green)" } : {}}
+        >
+          <span>📱</span> Device Linking
+        </div>
+        <div
+          className="settings-nav-item"
           onClick={handleDeleteAccount}
           style={{ color: "#e74c3c" }}
         >

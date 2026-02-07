@@ -46,6 +46,7 @@ export default function Users() {
   const sidebarRef = useRef(null);
   const searchTimeoutRef = useRef(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   // const [starredMessages, setStarredMessages] = useState([]);
   const [contextMenu, setContextMenu] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
@@ -105,6 +106,11 @@ export default function Users() {
     // Also listen for standard connect event
     socket.on("connect", () => {
       setSocketConnected(true);
+      // Re-establish setup and room join on reconnect
+      socket.emit("setup", user);
+      if (selectedChatRef.current) {
+        socket.emit("join-chat", selectedChatRef.current._id);
+      }
     });
 
     socket.on("online-users", (users) => {
@@ -153,7 +159,8 @@ export default function Users() {
       // If the message is for the currently open chat, update the message view
       if (selectedChatRef.current && selectedChatRef.current._id === newMessageReceived.chatId._id) {
         setMessages(prevMessages => {
-          const exists = prevMessages.some(m => m._id === newMessageReceived._id);
+          // Strict string comparison to prevent duplicates
+          const exists = prevMessages.some(m => String(m._id) === String(newMessageReceived._id));
           return exists ? prevMessages : [...prevMessages, newMessageReceived];
         });
       }
@@ -193,6 +200,13 @@ export default function Users() {
         });
     };
 
+    const chatGroupDeletedHandler = (chatId) => {
+      setChats(prev => prev.filter(c => c._id !== chatId));
+      if (selectedChatRef.current && selectedChatRef.current._id === chatId) {
+        setSelectedChat(null);
+      }
+    };
+
     const messageDeletedHandler = (updatedMessage) => {
       setMessages(prev => prev.map(m => m._id === updatedMessage._id ? updatedMessage : m));
     };
@@ -209,6 +223,7 @@ export default function Users() {
     socket.on("user-online", userOnlineHandler);
     socket.on("user-offline", userOfflineHandler);
     socket.on("chat-group-update", chatGroupUpdateHandler); // Listen for group updates
+    socket.on("chat-group-deleted", chatGroupDeletedHandler);
     socket.on("message-deleted", messageDeletedHandler);
     socket.on("messages-read", messagesReadHandler);
 
@@ -219,6 +234,7 @@ export default function Users() {
       socket.off("user-online", userOnlineHandler);
       socket.off("user-offline", userOfflineHandler);
       socket.off("chat-group-update", chatGroupUpdateHandler);
+      socket.off("chat-group-deleted", chatGroupDeletedHandler);
       socket.off("message-deleted", messageDeletedHandler);
       socket.off("messages-read", messagesReadHandler);
     };
@@ -347,20 +363,28 @@ export default function Users() {
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedChat) return;
+    if (!newMessage.trim() || !selectedChat || isSending) return;
     try {
+      setIsSending(true);
       const res = await api.post(`/messages`, {
         content: newMessage,
         chatId: selectedChat._id,
         replyTo: replyingTo?._id
       });
+      // Emit socket event
       socket.emit("send-message", res.data);
-      setMessages([...messages, res.data]);
+      // Use functional update to prevent stale state issues
+      setMessages(prev => {
+        if (prev.some(m => String(m._id) === String(res.data._id))) return prev;
+        return [...prev, res.data];
+      });
       setNewMessage("");
       setReplyingTo(null);
-      socket.emit("stop-typing", selectedChat._id);
+      socket.emit("stop-typing", { chatId: selectedChat._id });
     } catch (err) {
       console.error("Failed to send message:", err);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -371,7 +395,7 @@ export default function Users() {
 
     if (!typing) {
       setTyping(true);
-      socket.emit("typing", { chatId: selectedChat._id, username: user.username });
+      socket.emit("typing", { chatId: selectedChat._id });
     }
 
     // Clear existing timeout
@@ -555,7 +579,8 @@ export default function Users() {
       setSelectedGroupUsers([]);
       setGroupName("");
     } catch (error) {
-      console.error(error);
+      console.error("Failed to create group:", error);
+      alert("Failed to create group. Please try again.");
     }
   };
 
@@ -657,6 +682,21 @@ export default function Users() {
     }
   };
 
+  const handleDeleteGroup = async () => {
+    if (!selectedChat || !selectedChat.isGroupChat) return;
+    if (window.confirm("Are you sure you want to delete this group permanently? This action cannot be undone.")) {
+      try {
+        // Assuming you add this route to your backend router pointing to deleteGroup controller
+        await api.delete(`/messages/group/${selectedChat._id}`); 
+        setSelectedChat(null);
+        alert("Group deleted successfully");
+      } catch (err) {
+        console.error("Failed to delete group:", err);
+        alert(err.response?.data?.message || "Failed to delete group");
+      }
+    }
+  };
+
   const handleRemoveUser = async (userId) => {
     if (!selectedChat || !selectedChat.isGroupChat) return;
     if (window.confirm("Remove this user from the group?")) {
@@ -669,6 +709,22 @@ export default function Users() {
     } catch (err) {
         console.error("Failed to remove user:", err);
         alert("Failed to remove user");
+      }
+    }
+  };
+
+  const handleTransferAdmin = async (userId) => {
+    if (!selectedChat || !selectedChat.isGroupChat) return;
+    if (window.confirm("Make this user the group admin?")) {
+      try {
+        const { data } = await api.put("/messages/group/admin", {
+          chatId: selectedChat._id,
+          userId: userId,
+        });
+        setSelectedChat(data);
+      } catch (err) {
+        console.error(err);
+        alert("Failed to transfer admin rights");
       }
     }
   };
@@ -1156,32 +1212,29 @@ export default function Users() {
           </div>
           <div className="chat-input-area">
             {replyingTo && (
-              <div className="reply-preview" style={{ position: "absolute", bottom: "60px", left: "10px", right: "10px", background: "#e9edef", padding: "10px", borderRadius: "8px", borderLeft: "5px solid #00a884", zIndex: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontWeight: "bold", color: "#00a884" }}>Replying to {replyingTo.sender.username}</span>
-                  <button onClick={() => setReplyingTo(null)} style={{ border: "none", background: "none", cursor: "pointer", fontWeight: "bold" }}>✕</button>
+              <div className="reply-preview" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#e9edef", padding: "10px", borderRadius: "8px", borderLeft: "5px solid #00a884", position: "absolute", bottom: "60px", left: "16px", right: "16px", zIndex: 10 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: "bold", color: "#00a884", fontSize: "13px" }}>Replying to {replyingTo.sender.username}</div>
+                  <div style={{ fontSize: "12px", color: "#54656f", marginTop: "2px" }}>
+                    {replyingTo.type === 'image' ? '📷 Photo' : replyingTo.type === 'audio' ? '🎤 Voice Message' : replyingTo.content}
+                  </div>
                 </div>
-                <div style={{ fontSize: "12px", color: "#54656f", marginTop: "2px" }}>
-                  {replyingTo.type === 'image' ? '📷 Photo' : replyingTo.type === 'audio' ? '🎤 Voice Message' : replyingTo.content}
-                </div>
+                <button onClick={() => setReplyingTo(null)} style={{ border: "none", background: "none", cursor: "pointer", fontWeight: "bold", color: "#00a884", marginLeft: "10px", flexShrink: 0 }}>✕</button>
               </div>
             )}
+            <button onClick={() => fileInputRef.current.click()} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "20px" }} title="Attach File">📎</button>
+            <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileUpload} />
             
-            <div style={{ display: "flex", alignItems: "center", width: "100%", gap: "10px" }}>
-              <button onClick={() => fileInputRef.current.click()} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "20px" }} title="Attach File">📎</button>
-              <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileUpload} />
-              
-              <form onSubmit={handleSendMessage} style={{ display: "flex", flex: 1, padding: 0, background: "transparent", boxShadow: "none" }}>
-                <input type="text" ref={textInputRef} className="chat-input" placeholder="Type a message" value={newMessage} onChange={handleTyping} style={{ margin: 0 }} />
-                {newMessage.trim() ? (
-                  <button type="submit" className="send-btn" style={{ marginLeft: "10px" }}>➤</button>
-                ) : (
-                  <button type="button" onClick={isRecording ? stopRecording : startRecording} className="send-btn" style={{ marginLeft: "10px", background: isRecording ? "red" : "var(--primary-green)" }}>
-                    {isRecording ? "⏹" : "🎤"}
-                  </button>
-                )}
-              </form>
-            </div>
+            <form onSubmit={handleSendMessage} style={{ display: "flex", flex: 1, padding: 0, background: "transparent", boxShadow: "none", gap: "8px" }}>
+              <input type="text" ref={textInputRef} className="chat-input" placeholder="Type a message" value={newMessage} onChange={handleTyping} style={{ margin: 0 }} />
+              {newMessage.trim() ? (
+                <button type="submit" className="send-btn" style={{ marginLeft: "10px" }}>➤</button>
+              ) : (
+                <button type="button" onClick={isRecording ? stopRecording : startRecording} className="send-btn" style={{ marginLeft: "10px", background: isRecording ? "red" : "var(--primary-green)" }}>
+                  {isRecording ? "⏹" : "🎤"}
+                </button>
+              )}
+            </form>
           </div>
           {contextMenu && (
             <div className="context-menu" style={{ top: contextMenu.y, left: contextMenu.x, position: "fixed", zIndex: 1000, background: "white", border: "1px solid #ccc", borderRadius: "5px", padding: "5px", boxShadow: "0 2px 5px rgba(0,0,0,0.2)" }}>
@@ -1247,12 +1300,20 @@ export default function Users() {
                             <div style={{fontSize: '12px', color: 'var(--text-secondary)'}}>{u.email}</div>
                           </div>
                           {isAdmin && u._id !== user._id && (
-                            <button 
-                              onClick={() => handleRemoveUser(u._id)}
-                              style={{marginLeft: '10px', background: '#ff4d4d', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px'}}
-                            >
-                              Remove
-                            </button>
+                            <div style={{display: 'flex', gap: '5px', marginLeft: '10px'}}>
+                              <button 
+                                onClick={() => handleTransferAdmin(u._id)}
+                                style={{background: '#00a884', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px'}}
+                              >
+                                Make Admin
+                              </button>
+                              <button 
+                                onClick={() => handleRemoveUser(u._id)}
+                                style={{background: '#ff4d4d', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px'}}
+                              >
+                                Remove
+                              </button>
+                            </div>
                           )}
                         </div>
                       ));
@@ -1289,9 +1350,17 @@ export default function Users() {
                         )}
                       </div>
                     )}
-                    <div style={{marginTop: '15px', textAlign: 'center'}}>
-                      <button onClick={handleExitGroup} style={{background: '#ff4d4d', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer'}}>Exit Group</button>
-                    </div>
+                    
+                    {/* Admin Actions: Delete vs Exit */}
+                    {selectedChat.groupAdmin && (selectedChat.groupAdmin._id === user._id || selectedChat.groupAdmin === user._id) ? (
+                      <div style={{marginTop: '15px', textAlign: 'center'}}>
+                        <button onClick={handleDeleteGroup} style={{background: '#ff4d4d', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer'}}>Delete Group</button>
+                      </div>
+                    ) : (
+                      <div style={{marginTop: '15px', textAlign: 'center'}}>
+                        <button onClick={handleExitGroup} style={{background: '#ff4d4d', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer'}}>Exit Group</button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

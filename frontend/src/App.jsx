@@ -10,6 +10,7 @@ import Privacy from "/src/pages/settings/Privacy.jsx";
 import Security from "/src/pages/settings/Security.jsx";
 import ChatHistory from "/src/pages/settings/ChatHistory.jsx";
 import { useAuth } from "./context/AuthContext";
+import DeviceLinking from "/src/pages/settings/DeviceLinking.jsx";
 import Header from "./components/Header.jsx";
 import Footer from "./components/Footer.jsx";
 import About from "./pages/About.jsx";
@@ -105,6 +106,7 @@ export default function App() {
         <Route path="privacy" element={<Privacy />} />
         <Route path="security" element={<Security />} />
         <Route path="chat-history" element={<ChatHistory />} />
+        <Route path="device-linking" element={<DeviceLinking />} />
       </Route>
 
       {/* Catch All - Redirect to home */}

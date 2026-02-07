@@ -1,14 +1,15 @@
 
 import api from "../api/axios";
 import { createContext, useState, useContext, useEffect } from "react";
+import { updateSocketAuth } from "../socket/socket";
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    // Initialize from sessionStorage if available
-    const cached = sessionStorage.getItem("user");
+    // Initialize from localStorage if available
+    const cached = localStorage.getItem("user");
     return cached ? JSON.parse(cached) : null;
   });
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,8 @@ export const AuthProvider = ({ children }) => {
             const userData = res.data.user;
             setUser(userData);
             sessionStorage.setItem("user", JSON.stringify(userData));
+            // Update socket auth when user is validated
+            updateSocketAuth(userData);
             setError(null);
           } catch (err) {
             console.warn("Backend not available, using cached user data:", err.message);
@@ -81,6 +84,8 @@ export const AuthProvider = ({ children }) => {
       sessionStorage.setItem("user", JSON.stringify(userData));
       api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
       setUser(userData);
+      // Update socket auth so server handshake has current user
+      try { updateSocketAuth(userData); } catch (err) { console.warn('Failed to update socket auth on login', err); }
       return res.data;
     } catch (err) {
       const errorMsg = err.response?.data?.message || "Login failed";
@@ -99,6 +104,7 @@ export const AuthProvider = ({ children }) => {
       sessionStorage.setItem("user", JSON.stringify(userData));
       api.defaults.headers.common["Authorization"] = `Bearer ${token}`;
       setUser(userData);
+      try { updateSocketAuth(userData); } catch (err) { console.warn('Failed to update socket auth on register', err); }
       return res.data;
     } catch (err) {
       const errorMsg = err.response?.data?.message || "Registration failed";
@@ -118,6 +124,7 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem("chatMessages");
       localStorage.removeItem("chatsList");
       delete api.defaults.headers.common["Authorization"];
+      try { updateSocketAuth(null); } catch (err) { /* ignore */ }
       setUser(null);
       setError(null);
     }

@@ -13,8 +13,8 @@ connectDB();
 
 const server = http.createServer(app);
 const io = require("socket.io")(server, {
-  cors: { 
-    origin: "*",
+  cors: {
+    origin: ["http://localhost:5173", "http://localhost:3000"], // Specific origins are required when credentials are true
     methods: ["GET", "POST"],
     credentials: true
   },
@@ -44,7 +44,10 @@ io.on("connection", (socket) => {
   });
 });
 
-server.listen(process.env.PORT, () => {
-  console.log("Server running on port", process.env.PORT);
-  console.log("Server is running at: http://localhost:" + process.env.PORT);
+// Make io accessible to our router
+app.set('io', io);
+
+server.listen(5001, () => {
+  console.log("Server running on port", 5001);
+  console.log("Server is running at: http://localhost:" + 5001);
 });

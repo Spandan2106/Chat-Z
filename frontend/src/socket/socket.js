@@ -10,7 +10,7 @@ const getUserFromStorage = () => {
   }
 };
 
-export const socket = io("http://localhost:5000", {
+export const socket = io("http://localhost:5001", {
   reconnectionDelay: 1000,
   reconnection: true,
   reconnectionAttempts: 10,
@@ -23,7 +23,7 @@ export const socket = io("http://localhost:5000", {
 
 socket.on("connect", () => {
   console.log("Socket connected:", socket.id);
-  console.log("Auth user:", socket.handshake.auth?.user);
+  console.log("Auth user:", socket.auth?.user);
 });
 
 socket.on("connect_error", (error) => {
@@ -33,3 +33,14 @@ socket.on("connect_error", (error) => {
 socket.on("disconnect", (reason) => {
   console.log("Socket disconnected:", reason);
 });
+
+// Update socket auth when user changes
+export const updateSocketAuth = (user) => {
+  console.log("Updating socket auth with user:", user);
+  socket.auth.user = user;
+  if (socket.connected) {
+    // Reconnect with new auth
+    socket.disconnect();
+    socket.connect();
+  }
+};

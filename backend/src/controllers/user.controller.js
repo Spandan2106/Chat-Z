@@ -139,3 +139,16 @@ exports.toggleStarMessage = async (req, res) => {
     res.status(400).json({ error: error.message });
   }
 };
+
+exports.uploadPicture = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const user = await User.findByIdAndUpdate(req.user._id, { avatar: req.file.filename }, { new: true }).select("-password");
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
