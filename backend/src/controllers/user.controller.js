@@ -1,4 +1,4 @@
-const User = require("../models/user.model");
+const User = require("../models/User.model");
 const Message = require("../models/Message.model");
 const Chat = require("../models/Chat.model");
 const Ticket = require("../models/Ticket.model");

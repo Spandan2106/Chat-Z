@@ -1,6 +1,6 @@
 // backend/src/controllers/status.controller.js
 const Status = require('../models/Status.model');
-const User = require('../models/user.model');
+const User = require('../models/User.model');
 
 exports.createStatus = async (req, res) => {
   const { type, content, backgroundColor } = req.body;
