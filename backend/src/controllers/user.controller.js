@@ -1,28 +1,60 @@
 const User = require("../models/user.model");
+const Message = require("../models/message.model");
+const Chat = require("../models/Chat.model");
+const Ticket = require("../models/Ticket.model");
+const jwt = require("jsonwebtoken");
+
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: "30d",
+  });
+};
 
 exports.getUsers = async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 0;
+    const skip = (page - 1) * limit;
     const escapeRegex = (text) => {
       return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
     };
 
-    const keyword = req.query.search
-      ? {
-          $or: [
-            { username: { $regex: escapeRegex(req.query.search), $options: "i" } },
-            { email: { $regex: escapeRegex(req.query.search), $options: "i" } },
-          ],
-        }
-      : {};
+    let query = {};
 
-    // If admin, return all users; else return users excluding current user
-    const query = (req.user && req.user.isAdmin) ? keyword : { ...keyword };
-    
-    if (req.user && req.user._id && !req.user.isAdmin) {
-      query._id = { $ne: req.user._id };
+    if (req.query.search) {
+      query.$or = [
+        { username: { $regex: escapeRegex(req.query.search.trim()), $options: "i" } },
+        { email: { $regex: escapeRegex(req.query.search.trim()), $options: "i" } },
+      ];
     }
 
-    const users = await User.find(query).select("-password");
+    if (req.query.country) {
+      query.country = req.query.country;
+    }
+
+    if (req.user && !req.user.isAdmin) {
+      // Non-admins: Hide other admins (except Support), hide self
+      query = {
+        $and: [
+          query,
+          { _id: { $ne: req.user._id } },
+          {
+            $or: [
+              { isAdmin: { $ne: true } },
+              { email: "customercare@gmail.com" }
+            ]
+          }
+        ]
+      };
+    }
+
+    let usersQuery = User.find(query).select("-password").select("username email avatar country");
+
+    if (limit > 0) {
+      usersQuery = usersQuery.skip(skip).limit(limit);
+    }
+
+    const users = await usersQuery;
     res.send(users);
   } catch (err) {
     console.error("Error in getUsers:", err);
@@ -44,9 +76,62 @@ exports.addContact = async (req, res) => {
   }
 };
 
+exports.authSupport = async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    if (email === "customercare@gmail.com" && password === "####123") {
+      let user = await User.findOne({ email });
+
+      if (!user) {
+        user = await User.create({
+          username: "Customer Care",
+          email: "customercare@gmail.com",
+          password: "####123",
+          isAdmin: true, // Staff privileges
+          avatar: "https://icon-library.com/images/support-icon/support-icon-10.jpg"
+        });
+      } else if (!user.isAdmin) {
+          user.isAdmin = true;
+          await user.save();
+      }
+
+      res.json({
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        isAdmin: user.isAdmin,
+        avatar: user.avatar,
+        token: generateToken(user._id),
+      });
+    } else {
+      res.status(401).json({ error: "Invalid Support Credentials" });
+    }
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
 exports.getContacts = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).populate("contacts", "-password");
+    if (!user) return res.status(404).json({ error: "User not found" });
+    res.json(user.contacts || []);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.removeContact = async (req, res) => {
+  const { userId } = req.body;
+  try {
+    const user = await User.findByIdAndUpdate(
+      req.user._id,
+      { $pull: { contacts: userId } },
+      { new: true }
+    ).populate("contacts", "-password");
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
     res.json(user.contacts);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -64,6 +149,10 @@ exports.updateProfile = async (req, res) => {
 
 exports.deleteUser = async (req, res) => {
   try {
+    const user = await User.findById(req.params.id);
+    if (user && user.email === "admin@gmail.com") {
+      return res.status(400).json({ error: "Cannot delete the main admin account" });
+    }
     await User.findByIdAndDelete(req.params.id);
     res.json({ message: "User deleted successfully" });
   } catch (err) {
@@ -146,8 +235,129 @@ exports.uploadPicture = async (req, res) => {
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    const user = await User.findByIdAndUpdate(req.user._id, { avatar: req.file.filename }, { new: true }).select("-password");
+    const user = await User.findByIdAndUpdate(req.user._id, { avatar: req.file.path.replace(/\\/g, "/") }, { new: true }).select("-password");
     res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.createTicket = async (req, res) => {
+  const { subject, description } = req.body;
+  try {
+    const ticket = await Ticket.create({
+      user: req.user._id,
+      subject,
+      description,
+    });
+    res.status(201).json(ticket);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.getTickets = async (req, res) => {
+  try {
+    let tickets;
+    if (req.user.isAdmin || req.user.email === "customercare@gmail.com") {
+      tickets = await Ticket.find().populate("user", "username email").sort({ createdAt: -1 });
+    } else {
+      tickets = await Ticket.find({ user: req.user._id }).sort({ createdAt: -1 });
+    }
+    res.json(tickets);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.replyTicket = async (req, res) => {
+  const { ticketId, message } = req.body;
+  try {
+    const ticket = await Ticket.findById(ticketId);
+    if (!ticket) return res.status(404).json({ error: "Ticket not found" });
+
+    ticket.responses.push({ sender: req.user._id, message });
+    if (!req.user.isAdmin && req.user.email !== "customercare@gmail.com") {
+      ticket.status = "Open";
+    }
+    await ticket.save();
+    
+    const updatedTicket = await Ticket.findById(ticketId)
+      .populate("user", "username email")
+      .populate("responses.sender", "username email");
+      
+    res.json(updatedTicket);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.authAdmin = async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    if (email === "admin@gmail.com" && password === "admin2019usaNY2026@$") {
+      let user = await User.findOne({ email });
+
+      if (!user) {
+        user = await User.create({
+          username: "Admin",
+          email: "admin@gmail.com",
+          password: "admin2019usaNY2026@$",
+          isAdmin: true,
+          avatar: "https://icon-library.com/images/admin-icon/admin-icon-12.jpg"
+        });
+      } else if (!user.isAdmin) {
+          user.isAdmin = true;
+          await user.save();
+      }
+
+      res.json({
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        isAdmin: user.isAdmin,
+        avatar: user.avatar,
+        token: generateToken(user._id),
+      });
+    } else {
+      res.status(401).json({ error: "Invalid Admin Credentials" });
+    }
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+};
+
+exports.deleteAccount = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findById(userId);
+    if (user && user.email === "admin@gmail.com") {
+      return res.status(400).json({ error: "Cannot delete the main admin account" });
+    }
+    // Delete all messages sent by the user
+    await Message.deleteMany({ sender: userId });
+    // Remove user from all chats
+    await Chat.updateMany({ users: userId }, { $pull: { users: userId } });
+    await User.findByIdAndDelete(userId);
+    res.json({ message: "Account deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (user.matchPassword && await user.matchPassword(currentPassword)) {
+      user.password = newPassword;
+      await user.save();
+      res.json({ message: "Password updated successfully" });
+    } else {
+      res.status(400).json({ error: "Invalid current password" });
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -12,7 +12,6 @@ export default function Header() {
         <span className="dynamic-logo-text">Chat_Z</span>
       </div>
       <nav className="header-nav">
-        <button onClick={() => navigate("/status")}>Status</button>
         <button onClick={() => navigate("/users")}>Chats</button>
         <button onClick={() => navigate("/about")}>About</button>
         {user ? (

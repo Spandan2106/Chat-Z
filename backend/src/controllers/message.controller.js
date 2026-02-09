@@ -6,14 +6,24 @@ exports.sendMediaMessage = async (req, res) => {
   try {
     const { chatId } = req.body;
     const contentPath = req.file.path.replace(/\\/g, "/");
+    
+    let type = "file";
+    if (req.file.mimetype.startsWith("image")) type = "image";
+    else if (req.file.mimetype.startsWith("audio")) type = "audio";
+    else if (req.file.mimetype.startsWith("video")) type = "video";
+
     let message = await Message.create({
       sender: req.user._id,
       content: contentPath,
       chatId: chatId,
-      type: req.file.mimetype.startsWith("audio") ? "audio" : "image"
+      type: type
     });
     message = await message.populate("sender", "username avatar");
     message = await message.populate("chatId");
+    message = await User.populate(message, {
+      path: "chatId.users",
+      select: "username avatar email",
+    });
     await Chat.findByIdAndUpdate(chatId, { latestMessage: message });
     res.json(message);
   } catch (error) {
@@ -138,6 +148,44 @@ exports.sendMessage = async (req, res) => {
 
     await Chat.findByIdAndUpdate(req.body.chatId, { latestMessage: message });
     res.json(message);
+
+    // Automated Reply for Customer Care
+    const chat = await Chat.findById(chatId).populate("users");
+    const recipient = chat.users.find(u => u._id.toString() !== req.user._id.toString());
+    
+    if (recipient && recipient.email === "customercare@gmail.com") {
+      const io = req.app.get('io');
+      let replyContent = "Thank you for contacting support. An agent will be with you shortly.";
+      
+      const lowerContent = content.toLowerCase();
+      if (lowerContent.includes("hello") || lowerContent.includes("hi")) {
+        replyContent = "Hello! How can I help you today? You can ask about 'password', 'account', or 'features'.";
+      } else if (lowerContent.includes("password")) {
+        replyContent = "To reset your password, please go to the login page and click 'Forgot Password'.";
+      } else if (lowerContent.includes("account")) {
+        replyContent = "For account issues, please specify if you want to delete or update your profile.";
+      } else if (lowerContent.includes("features")) {
+        replyContent = "We offer chat, groups, status updates, and more! What would you like to know?";
+      }
+
+      setTimeout(async () => {
+        let replyMessage = await Message.create({
+          sender: recipient._id,
+          content: replyContent,
+          chatId: chatId,
+          type: "text"
+        });
+        
+        replyMessage = await replyMessage.populate("sender", "username avatar");
+        replyMessage = await replyMessage.populate("chatId");
+        replyMessage = await User.populate(replyMessage, {
+          path: "chatId.users",
+          select: "username avatar email",
+        });
+        
+        io.to(chatId).emit("message received", replyMessage);
+      }, 1000);
+    }
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
@@ -218,10 +266,11 @@ exports.createGroupChat = async (req, res) => {
     if (!users || users.length < 1) {
       return res.status(400).send("At least 1 user is required to form a group chat");
     }
-    users.push(req.user._id);
 
-    // Ensure unique users to prevent duplicates and define the variable for later use
-    const uniqueUsers = [...new Set(users)];
+    // Ensure all IDs are strings to prevent duplicates and ensure current user is added
+    const allUserIds = users.map(u => String(u));
+    allUserIds.push(String(req.user._id));
+    const uniqueUsers = [...new Set(allUserIds)];
 
     const groupChat = await Chat.create({
       chatName: req.body.name,
@@ -256,6 +305,8 @@ exports.fetchChats = async (req, res) => {
   try {
     if (!req.user) return res.status(400).send("User not authenticated");
 
+    // Use a direct query on the array of user IDs. This is more efficient and
+    // reliable for finding chats where the user is a member.
     let results = await Chat.find({ users: { $elemMatch: { $eq: req.user._id } } })
       .populate("users", "-password")
       .populate("groupAdmin", "-password")
@@ -266,9 +317,46 @@ exports.fetchChats = async (req, res) => {
       path: "latestMessage.sender",
       select: "username avatar email",
     });
-    res.status(200).send(results);
+
+    // Add unread counts
+    const chatsWithCount = await Promise.all(results.map(async (chat) => {
+      const unreadCount = await Message.countDocuments({
+        chatId: chat._id,
+        sender: { $ne: req.user._id },
+        readBy: { $ne: req.user._id }
+      });
+      return { ...chat.toObject(), unreadCount };
+    }));
+
+    res.status(200).send(chatsWithCount);
   } catch (error) {
     res.status(400).send(error.message);
+  }
+};
+
+exports.searchGroups = async (req, res) => {
+  try {
+    const escapeRegex = (text) => {
+      return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, "\\$&");
+    };
+
+    const keyword = req.query.search
+      ? {
+          chatName: { $regex: escapeRegex(req.query.search), $options: "i" },
+        }
+      : {};
+
+    const groups = await Chat.find({
+      isGroupChat: true,
+      ...keyword,
+      users: { $ne: req.user._id } // Exclude groups user is already in
+    })
+    .populate("users", "-password")
+    .populate("groupAdmin", "-password");
+
+    res.json(groups);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
   }
 };
 

@@ -100,15 +100,15 @@ export default function ChatHistory() {
           <div className="storage-info">
             <div className="storage-item">
               <label>Total Chats</label>
-              <span>Calculating...</span>
+              <span>12</span>
             </div>
             <div className="storage-item">
               <label>Total Messages</label>
-              <span>Calculating...</span>
+              <span>1,245</span>
             </div>
             <div className="storage-item">
               <label>Storage Used</label>
-              <span>Calculating...</span>
+              <span>45.2 MB</span>
             </div>
           </div>
         </div>

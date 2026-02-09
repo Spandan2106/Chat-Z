@@ -3,6 +3,7 @@ require("dotenv").config({ path: path.join(__dirname, "../.env") });
 const http = require("http");
 const app = require("./app");
 const connectDB = require("./config/db");
+const express = require("express");
 
 if (!process.env.MONGO_URI) {
   console.error("Error: MONGO_URI is not defined in .env file");
@@ -10,6 +11,9 @@ if (!process.env.MONGO_URI) {
 }
 
 connectDB();
+
+// Serve static files from uploads directory
+app.use("/uploads", express.static("uploads"));
 
 const server = http.createServer(app);
 const io = require("socket.io")(server, {
@@ -37,6 +41,14 @@ io.on("connection", (socket) => {
   messageSocketHandler(io, socket);
   typingSocketHandler(io, socket);
   chatSocketHandler(io, socket);
+
+  socket.on("callUser", (data) => {
+    io.to(data.userToCall).emit("callUser", { signal: data.signalData, from: data.from, name: data.name });
+  });
+
+  socket.on("answerCall", (data) => {
+    io.to(data.to).emit("callAccepted", data.signal);
+  });
 
   // Handle disconnect
   socket.on("disconnect", () => {

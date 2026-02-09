@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import api from "../api/axios";
 import { useAuth } from "../context/AuthContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { socket } from "../socket/socket";
+import { countries } from "../constants.js";
+
 
 export default function Users() {
   const { user, setUser, logout } = useAuth();
@@ -14,7 +16,9 @@ export default function Users() {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCountry, setSelectedCountry] = useState("");
   const [searchResultLimit, setSearchResultLimit] = useState(10);
+  const [searchPage, setSearchPage] = useState(1);
   const [selectedChat, setSelectedChat] = useState(null);
   const selectedChatRef = useRef(null); // Ref to track selected chat without re-running effects
   const [messages, setMessages] = useState([]);
@@ -27,6 +31,7 @@ export default function Users() {
   const [searchAddMemberQuery, setSearchAddMemberQuery] = useState("");
   const [addMemberSearchResults, setAddMemberSearchResults] = useState([]);
   const navigate = useNavigate();
+  const location = useLocation();
   const scrollRef = useRef();
   const [socketConnected, setSocketConnected] = useState(false);
   const [typing, setTyping] = useState(false);
@@ -38,7 +43,6 @@ export default function Users() {
   const [showMessageSearch, setShowMessageSearch] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
-  const fileInputRef = useRef();
   const textInputRef = useRef();
   const typingTimeoutRef = useRef(null);
   const [filterType, setFilterType] = useState("all"); // 'all', 'users', 'groups'
@@ -50,11 +54,17 @@ export default function Users() {
   // const [starredMessages, setStarredMessages] = useState([]);
   const [contextMenu, setContextMenu] = useState(null);
   const [replyingTo, setReplyingTo] = useState(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
   const [showForwardModal, setShowForwardModal] = useState(false);
   const [messageToForward, setMessageToForward] = useState(null);
+  const [participantSearchQuery, setParticipantSearchQuery] = useState("");
+  const [chatContextMenu, setChatContextMenu] = useState(null);
+  
+  // --- Ticket System State ---
+  const [showTicketModal, setShowTicketModal] = useState(false);
+  const [tickets, setTickets] = useState([]);
+  const [newTicket, setNewTicket] = useState({ subject: "", description: "" });
+  const [selectedTicket, setSelectedTicket] = useState(null);
+  const [ticketReply, setTicketReply] = useState("");
   
   // --- Status State ---
   const [statuses, setStatuses] = useState([]);
@@ -62,16 +72,37 @@ export default function Users() {
   const [showStatusUpload, setShowStatusUpload] = useState(false);
   const [statusContent, setStatusContent] = useState("");
   const [statusColor, setStatusColor] = useState("#008069");
+  const [replyContent, setReplyContent] = useState("");
+  const [isDeletingStatus, setIsDeletingStatus] = useState(false);
 
   // --- Call State ---
   const [stream, setStream] = useState();
   const [receivingCall, setReceivingCall] = useState(false);
   const [caller, setCaller] = useState("");
+  const [callerSignal, setCallerSignal] = useState();
   const [callAccepted, setCallAccepted] = useState(false);
-  // eslint-disable-next-line no-unused-vars
   const [callEnded, setCallEnded] = useState(false);
+  const [name, setName] = useState("");
   const myVideo = useRef();
   const userVideo = useRef();
+  const connectionRef = useRef();
+  const [Peer, setPeer] = useState(null);
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (typeof global === "undefined") {
+      window.global = window;
+    }
+    import("simple-peer").then((module) => {
+      setPeer(() => module.default);
+    });
+  }, []);
 
   const startResizing = useCallback((mouseDownEvent) => {
     mouseDownEvent.preventDefault();
@@ -142,7 +173,13 @@ export default function Users() {
 
         if (chatIndex !== -1) {
           // Chat exists, update it and move to top
-          const updatedChat = { ...prevChats[chatIndex], latestMessage: newMessageReceived };
+          const chat = prevChats[chatIndex];
+          const isCurrentChat = selectedChatRef.current && selectedChatRef.current._id === chat._id;
+          const updatedChat = { 
+            ...chat, 
+            latestMessage: newMessageReceived,
+            unreadCount: isCurrentChat ? 0 : (chat.unreadCount || 0) + 1
+          };
           newChats = [
             updatedChat,
             ...prevChats.slice(0, chatIndex),
@@ -150,7 +187,11 @@ export default function Users() {
           ];
         } else {
           // New chat (e.g., user was added to a group), add it to the top
-          const newChat = { ...newMessageReceived.chatId, latestMessage: newMessageReceived };
+          const newChat = { 
+            ...newMessageReceived.chatId, 
+            latestMessage: newMessageReceived,
+            unreadCount: 1
+          };
           newChats = [newChat, ...prevChats];
         }
         return newChats;
@@ -163,6 +204,9 @@ export default function Users() {
           const exists = prevMessages.some(m => String(m._id) === String(newMessageReceived._id));
           return exists ? prevMessages : [...prevMessages, newMessageReceived];
         });
+        // If chat is open, mark as read immediately
+        socket.emit("read-messages", { chatId: selectedChatRef.current._id });
+        api.put("/messages/read", { chatId: selectedChatRef.current._id }).catch(console.error);
       }
     };
 
@@ -245,6 +289,8 @@ export default function Users() {
     socket.on("callUser", (data) => {
       setReceivingCall(true);
       setCaller(data.from);
+      setName(data.name);
+      setCallerSignal(data.signal);
     });
 
     return () => {
@@ -335,12 +381,69 @@ export default function Users() {
   useEffect(() => {
     const handleClick = () => setContextMenu(null);
     document.addEventListener("click", handleClick);
+    document.addEventListener("click", () => setChatContextMenu(null));
     return () => document.removeEventListener("click", handleClick);
   }, []);
 
   const handleLogout = () => {
     logout();
     navigate("/");
+  };
+
+  const handleContactSupport = async () => {
+    try {
+      const { data } = await api.get(`/users?search=customercare@gmail.com`);
+      if (data && data.length > 0) {
+         const supportUser = data.find(u => u.email === "customercare@gmail.com");
+         if (supportUser) accessChat(supportUser._id);
+      } else {
+         alert("Customer Care is currently offline. Please try again later.");
+      }
+    } catch (e) {
+      console.error("Failed to contact support", e);
+    }
+  };
+
+  const sendFAQ = (question) => {
+    setNewMessage(question);
+    // We need to trigger the send logic, but handleSendMessage expects an event
+    // We can just call the API directly or simulate the event, but calling API is cleaner if we extract the logic.
+    // For simplicity here, I'll just set the state and let the user press send, 
+    // OR better, I'll refactor handleSendMessage to accept content directly, but to minimize diffs:
+    // I will simulate a quick send.
+    setTimeout(() => document.querySelector('.send-btn')?.click(), 100);
+  };
+
+  const handleOpenTickets = async () => {
+    setShowTicketModal(true);
+    try {
+      const { data } = await api.get("/users/tickets");
+      setTickets(data);
+    } catch (err) {
+      console.error("Failed to fetch tickets", err);
+    }
+  };
+
+  const handleCreateTicket = async () => {
+    if (!newTicket.subject || !newTicket.description) return alert("Please fill all fields");
+    try {
+      const { data } = await api.post("/users/tickets", newTicket);
+      setTickets([data, ...tickets]);
+      setNewTicket({ subject: "", description: "" });
+      alert("Ticket created!");
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleReplyTicket = async () => {
+    if (!ticketReply.trim() || !selectedTicket) return;
+    try {
+      const { data } = await api.put("/users/tickets/reply", { ticketId: selectedTicket._id, message: ticketReply });
+      setTickets(tickets.map(t => t._id === data._id ? data : t));
+      setSelectedTicket(data);
+      setTicketReply("");
+    } catch (err) { console.error(err); }
   };
 
   const handleRefresh = async () => {
@@ -410,75 +513,6 @@ export default function Users() {
     }, 3000);
   };
 
-  const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("chatId", selectedChat._id);
-
-    try {
-      const res = await api.post("/messages/media", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      // Adjust based on your media message response structure
-      const msg = { ...res.data, sender: user, createdAt: new Date() };
-      setMessages([...messages, msg]);
-      socket.emit("send-message", msg);
-    } catch (err) {
-      console.error("File upload failed", err);
-    }
-  };
-
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const audioFile = new File([audioBlob], "voice_message.webm", { type: 'audio/webm' });
-        
-        const formData = new FormData();
-        formData.append("file", audioFile);
-        formData.append("chatId", selectedChat._id);
-
-        try {
-          const res = await api.post("/messages/media", formData, {
-            headers: { "Content-Type": "multipart/form-data" },
-          });
-          const msg = { ...res.data, sender: user, createdAt: new Date() };
-          setMessages(prev => [...prev, msg]);
-          socket.emit("send-message", msg);
-        } catch (err) {
-          console.error("Audio upload failed", err);
-        }
-        
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error("Error accessing microphone:", err);
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
-  };
-
   const handlePostStatus = async () => {
     if (!statusContent.trim()) return;
     try {
@@ -495,34 +529,116 @@ export default function Users() {
     }
   };
 
-  const handleSearch = async (e) => {
-    const query = e.target.value;
-    setSearchQuery(query);
-    setSearchResultLimit(10);
+  const handleDeleteStatus = async (statusId) => {
+    if (!statusId || isDeletingStatus) return;
+    if (!window.confirm("Delete this status update?")) return;
+    setIsDeletingStatus(true);
+    try {
+      await api.delete(`/status/${statusId}`);
+      const res = await api.get("/status");
+      setStatuses(res.data);
+      setViewingStatusGroup(null);
+    } catch (err) {
+      // If status is not found (404), it's already deleted, so just refresh
+      if (err.response && err.response.status === 404) {
+        const res = await api.get("/status");
+        setStatuses(res.data);
+        setViewingStatusGroup(null);
+      } else {
+        console.error("Failed to delete status:", err);
+        alert(err.response?.data?.error || "Failed to delete status");
+      }
+    } finally {
+      setIsDeletingStatus(false);
+    }
+  };
+
+  const handleViewStatus = async (group) => {
+    setViewingStatusGroup(group);
+    if (group.user._id !== user._id) {
+      try {
+        if (group.statuses.length > 0) {
+           await api.put(`/status/${group.statuses[0]._id}/view`);
+        }
+      } catch (err) {
+        console.error("Failed to mark status as viewed", err);
+      }
+    } else {
+      // Refresh to see viewers for my status
+      try {
+          const res = await api.get("/status");
+          setStatuses(res.data);
+          const updatedGroup = res.data.find(g => g.user._id === user._id);
+          if (updatedGroup) {
+              setViewingStatusGroup(updatedGroup);
+          }
+      } catch (err) {
+          console.error("Failed to refresh status viewers", err);
+      }
+    }
+  };
+
+  const handleReplyToStatus = async () => {
+    if (!replyContent.trim() || !viewingStatusGroup) return;
+    try {
+      const { data: chat } = await api.post("/messages/chat", { userId: viewingStatusGroup.user._id });
+      
+      const statusText = viewingStatusGroup.statuses[0]?.content || "Status";
+      const msgContent = `Replying to status: "${statusText}"\n\n${replyContent}`;
+      
+      const res = await api.post(`/messages`, {
+        content: msgContent,
+        chatId: chat._id
+      });
+      
+      socket.emit("send-message", res.data);
+      if (selectedChat && selectedChat._id === chat._id) {
+           setMessages(prev => [...prev, res.data]);
+      }
+      
+      setReplyContent("");
+      setViewingStatusGroup(null);
+      alert("Reply sent!");
+    } catch (err) {
+      console.error("Failed to reply:", err);
+      alert("Failed to reply");
+    }
+  };
+
+  const executeSearch = async (query, country, page = 1) => {
+    if (page === 1) {
+      setSearchResultLimit(10);
+      setSearchResults([]);
+    }
     setSearchError(null);
 
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
 
-    if (!query) {
+    if (!query && !country) {
       setSearchResults([]);
       setIsSearching(false);
       return;
     }
 
     // Search Groups locally
-    const groupResults = chats.filter(c => 
+    const groupResults = (!country) ? chats.filter(c => 
       c.isGroupChat && c.chatName.toLowerCase().includes(query.toLowerCase())
-    );
+    ) : [];
 
     // Prioritize client-side search if allUsers is available
     if (allUsers.length > 0) {
       const clientResults = allUsers.filter((u) => {
         const username = u.username ? u.username.toLowerCase() : "";
         const email = u.email ? u.email.toLowerCase() : "";
+        const uCountry = u.country ? u.country : "";
         const q = query.toLowerCase();
-        return (username.includes(q) || email.includes(q)) && u._id !== user?._id;
+        
+        const matchesQuery = !q || (username.includes(q) || email.includes(q));
+        const matchesCountry = !country || uCountry === country;
+        
+        return matchesQuery && matchesCountry && u._id !== user?._id;
       });
       
       // Combine group results with user results
@@ -536,9 +652,11 @@ export default function Users() {
     setIsSearching(true);
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const { data } = await api.get(`/users?search=${query}`);
+        let url = `/users?search=${query}&page=${page}&limit=20`;
+        if (country) url += `&country=${country}`;
+        const { data } = await api.get(url);
         const userResults = Array.isArray(data) ? data.filter(u => u._id !== user?._id) : [];
-        setSearchResults([...groupResults, ...userResults]);
+        setSearchResults(prev => page === 1 ? [...groupResults, ...userResults] : [...prev, ...userResults]);
       } catch (error) {
         console.error("Search failed:", error.response?.data || error.message);
         setSearchResults(groupResults); // Show groups even if user search fails
@@ -549,13 +667,46 @@ export default function Users() {
     }, 300); // 300ms debounce
   };
 
-  const accessChat = async (userId) => {
+  const handleSearch = (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+    setSearchPage(1);
+    executeSearch(query, selectedCountry, 1);
+  };
+
+  const handleCountryChange = (e) => {
+    const country = e.target.value;
+    setSelectedCountry(country);
+    setSearchPage(1);
+    executeSearch(searchQuery, country, 1);
+  };
+
+  const handleLoadMoreResults = () => {
+    const nextPage = searchPage + 1;
+    setSearchPage(nextPage);
+    executeSearch(searchQuery, selectedCountry, nextPage);
+  };
+
+  const handleAddContact = useCallback(async (e, userId, silent = false) => {
+    if (e) e.stopPropagation();
+    try {
+      const { data } = await api.put("/users/addcontact", { userId });
+      if (!silent) alert("User added to contacts!");
+      setUser(prev => ({ ...prev, contacts: data })); // Update local user state immediately
+    } catch (err) {
+      console.error(err);
+      if (!silent) alert("Failed to add contact");
+    }
+  }, [setUser]);
+
+  const accessChat = useCallback(async (userId) => {
     try {
       const { data } = await api.post("/messages/chat", { userId });
       if (!chats.find((c) => c._id === data._id)) setChats([data, ...chats]);
       setSelectedChat(data);
       setSearchQuery("");
       setSearchResults([]);
+      setChats(prev => prev.map(c => c._id === data._id ? { ...c, unreadCount: 0 } : c));
 
       // Auto-save contact if not already in contacts
       const isContact = user.contacts?.some(c => (typeof c === 'string' ? c : c._id) === userId);
@@ -565,7 +716,15 @@ export default function Users() {
     } catch (error) {
       console.error(error);
     }
-  };
+  }, [chats, user.contacts, handleAddContact]);
+
+  useEffect(() => {
+    if (location.state?.selectedChat) {
+      setSelectedChat(location.state.selectedChat);
+    } else if (location.state?.contactId) {
+      accessChat(location.state.contactId);
+    }
+  }, [location.state, accessChat]);
 
   const createGroup = async () => {
     if (!groupName || selectedGroupUsers.length < 1) return alert("Need name and at least 1 user");
@@ -600,22 +759,14 @@ export default function Users() {
     return { username: "Unknown User", avatar: "", email: "" };
   };
 
-  const renderAvatar = (u) => {
-    if (u.avatar) return <img src={u.avatar} className="avatar" alt={u.username} />;
-    const initials = (u.username || "U").split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase();
-    return <div className="avatar default-avatar">{initials}</div>;
-  };
-
-  const handleAddContact = async (e, userId, silent = false) => {
-    if (e) e.stopPropagation();
-    try {
-      const { data } = await api.put("/users/addcontact", { userId });
-      if (!silent) alert("User added to contacts!");
-      setUser(prev => ({ ...prev, contacts: data })); // Update local user state immediately
-    } catch (err) {
-      console.error(err);
-      if (!silent) alert("Failed to add contact");
+  const renderAvatar = (u, size = 40) => {
+    const style = { width: `${size}px`, height: `${size}px`, fontSize: `${Math.max(14, size/2.5)}px` };
+    if (u.avatar) {
+        const avatarUrl = u.avatar.startsWith('http') ? u.avatar : `http://localhost:5001/${u.avatar.replace(/\\/g, "/")}`;
+        return <img src={avatarUrl} className="avatar" alt={u.username} style={style} />;
     }
+    const initials = (u.username || "U").split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase();
+    return <div className="avatar default-avatar" style={style}>{initials}</div>;
   };
 
   const handleMessageClick = (msg) => {
@@ -664,6 +815,36 @@ export default function Users() {
     }
   };
 
+  const handleChatContextMenu = (e, chat) => {
+    e.preventDefault();
+    setChatContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      chat: chat
+    });
+  };
+
+  const handleLeaveGroupFromMenu = async () => {
+    if (!chatContextMenu?.chat) return;
+    const chatToLeave = chatContextMenu.chat;
+    if (!chatToLeave.isGroupChat) return;
+
+    if (window.confirm(`Are you sure you want to leave the group "${chatToLeave.chatName}"?`)) {
+      try {
+        await api.put("/messages/groupremove", {
+          chatId: chatToLeave._id,
+          userId: user._id,
+        });
+        setChats(prev => prev.filter(c => c._id !== chatToLeave._id));
+        if (selectedChat?._id === chatToLeave._id) setSelectedChat(null);
+        setChatContextMenu(null);
+      } catch (err) {
+        console.error("Failed to exit group:", err);
+        alert("Failed to exit group");
+      }
+    }
+  };
+
   const handleExitGroup = async () => {
     if (!selectedChat || !selectedChat.isGroupChat) return;
     if (window.confirm("Are you sure you want to leave this group?")) {
@@ -675,7 +856,7 @@ export default function Users() {
         });
         setSelectedChat(null);
         handleRefresh();
-    } catch (err) {
+      } catch (err) {
         console.error("Failed to exit group:", err);
         alert("Failed to exit group");
       }
@@ -706,7 +887,7 @@ export default function Users() {
           userId: userId,
         });
         setSelectedChat(data);
-    } catch (err) {
+      } catch (err) {
         console.error("Failed to remove user:", err);
         alert("Failed to remove user");
       }
@@ -859,46 +1040,61 @@ export default function Users() {
   };
 
   // --- Call Functions ---
-  const callUser = () => {
+  const callUser = (id) => {
+    if (!Peer) return;
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
       setStream(stream);
       if (myVideo.current) myVideo.current.srcObject = stream;
 
-      // To enable calls, install simple-peer: npm install simple-peer
-      // const peer = new Peer({ initiator: true, trickle: false, stream: stream });
-      // peer.on("signal", (data) => {
-      //   socket.emit("callUser", { userToCall: id, signalData: data, from: user._id });
-      // });
-      // peer.on("stream", (stream) => {
-      //   if (userVideo.current) userVideo.current.srcObject = stream;
-      // });
+      const peer = new Peer({ initiator: true, trickle: false, stream: stream });
+      
+      peer.on("signal", (data) => {
+        socket.emit("callUser", { userToCall: id, signalData: data, from: user._id, name: user.username });
+      });
+      
+      peer.on("stream", (currentStream) => {
+        if (userVideo.current) userVideo.current.srcObject = currentStream;
+      });
 
-      // socket.on("callAccepted", (signal) => {
-      //   setCallAccepted(true);
-      //   peer.signal(signal);
-      // });
+      socket.on("callAccepted", (signal) => {
+        setCallAccepted(true);
+        peer.signal(signal);
+      });
 
-      // connectionRef.current = peer;
+      connectionRef.current = peer;
     });
   };
 
   const answerCall = () => {
+    if (!Peer) return;
     setCallAccepted(true);
     navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
       setStream(stream);
       if (myVideo.current) myVideo.current.srcObject = stream;
 
-      // To enable calls, install simple-peer: npm install simple-peer
-      // const peer = new Peer({ initiator: false, trickle: false, stream: stream });
-      // peer.on("signal", (data) => {
-      //   socket.emit("answerCall", { signal: data, to: caller });
-      // });
-      // peer.on("stream", (stream) => {
-      //   userVideo.current.srcObject = stream;
-      // });
+      const peer = new Peer({ initiator: false, trickle: false, stream: stream });
+      
+      peer.on("signal", (data) => {
+        socket.emit("answerCall", { signal: data, to: caller });
+      });
+      
+      peer.on("stream", (currentStream) => {
+        if (userVideo.current) userVideo.current.srcObject = currentStream;
+      });
 
-      // connectionRef.current = peer;
+      peer.signal(callerSignal);
+      connectionRef.current = peer;
     });
+  };
+
+  const leaveCall = () => {
+    setCallEnded(true);
+    if (connectionRef.current) connectionRef.current.destroy();
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    setStream(null);
+    setCallAccepted(false);
+    setReceivingCall(false);
+    setCallEnded(false);
   };
 
   const filteredMessages = messages.filter(msg => (msg.message || msg.content || "").toLowerCase().includes(messageSearchQuery.toLowerCase()));
@@ -918,7 +1114,11 @@ export default function Users() {
   return (
     <div className="app-container">
       {/* Chat List Sidebar */}
-      <div className="chat-list" ref={sidebarRef} style={{ width: sidebarWidth, flex: "none" }}>
+      <div 
+        className="chat-list" 
+        ref={sidebarRef} 
+        style={{ width: isMobile ? '100%' : sidebarWidth, flex: "none", display: isMobile && (selectedChat || searchQuery || selectedCountry) ? 'none' : 'flex' }}
+      >
         <div className="sidebar-header">
           <div style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }} onClick={() => navigate("/profile")}>
             {user && renderAvatar(user)}
@@ -928,6 +1128,8 @@ export default function Users() {
             <button onClick={() => setShowGroupModal(!showGroupModal)} title="New Group" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>👥</button>
             <button onClick={() => navigate("/settings")} title="Settings" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>⚙️</button>
             <button onClick={handleRefresh} title="Refresh List" disabled={isRefreshing} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px", opacity: isRefreshing ? 0.5 : 1 }}>🔄</button>
+            <button onClick={handleContactSupport} title="Contact Support" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>🎧</button>
+            <button onClick={handleOpenTickets} title="Support Tickets" style={{ background: "none", border: "none", cursor: "pointer", fontSize: "18px" }}>🎫</button>
             {user?.isAdmin && (
               <button onClick={() => navigate("/admin")} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: "18px" }} title="Admin Panel">🛡️</button>
             )}
@@ -980,7 +1182,7 @@ export default function Users() {
           </div>
         )}
 
-        {filterType !== "status" && <div className="search-bar-container" style={{ padding: "10px", borderBottom: "1px solid #e9edef" }}>
+        {filterType !== "status" && <div className="search-bar-container" style={{ padding: "10px", borderBottom: "1px solid #e9edef", display: "flex", gap: "10px" }}>
           <input 
             type="text" 
             placeholder="Search or start new chat" 
@@ -990,6 +1192,21 @@ export default function Users() {
             style={{ margin: 0, width: "100%", backgroundColor: usersLoading ? '#f0f2f5' : 'var(--input-bg)' }}
             disabled={usersLoading}
           />
+          <input 
+            list="users-countries"
+            value={selectedCountry} 
+            onChange={handleCountryChange}
+            className="chat-input"
+            placeholder="All Countries"
+            style={{ width: "150px", margin: 0, padding: "10px" }}
+          />
+          <datalist id="users-countries">
+            {countries.map(c => (
+              <option key={c.code} value={c.name}>
+                {c.code.toUpperCase().replace(/./g, char => String.fromCodePoint(char.charCodeAt(0) + 127397))} {c.name}
+              </option>
+            ))}
+          </datalist>
         </div>}
 
         <div className="user-list">
@@ -1005,7 +1222,7 @@ export default function Users() {
               </div>
               <div style={{padding: '10px 0', color: 'var(--text-secondary)', fontWeight: 'bold', fontSize: '13px'}}>RECENT UPDATES</div>
               {statuses.map((group, idx) => (
-                <div key={idx} className="user-item" onClick={() => setViewingStatusGroup(group)}>
+                <div key={idx} className="user-item" onClick={() => handleViewStatus(group)}>
                   <div className={`avatar ${!group.user.avatar ? "default-avatar" : ""}`} style={{border: '2px solid #00a884', padding: '2px'}}>
                     {group.user.avatar ? <img src={group.user.avatar} alt="" style={{borderRadius: '50%', width: '100%', height: '100%'}} /> : 
                     (group.user.username || "U").substring(0, 2).toUpperCase()}
@@ -1023,7 +1240,7 @@ export default function Users() {
           ) : (
           <>
             {/* Search Results */}
-            {searchQuery.length > 0 ? (
+            {searchQuery.length > 0 || selectedCountry ? (
             isSearching ? (
               <div style={{ padding: "20px", textAlign: "center", color: "var(--text-secondary)", display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
                 <div className="loading-spinner" style={{ width: '24px', height: '24px' }}></div>
@@ -1035,7 +1252,7 @@ export default function Users() {
                   {searchResults.slice(0, searchResultLimit).map((u) => (
                     <div
                       key={u._id}
-                      className="user-item"
+                      className="user-item search-result-item"
                       style={showGroupModal && selectedGroupUsers.find(sel => sel._id === u._id) ? { backgroundColor: "#d9fdd3" } : {}}
                       onClick={() => {
                         if (u.isGroupChat) {
@@ -1054,19 +1271,20 @@ export default function Users() {
                       }}
                     >
                       {u.isGroupChat ? <div className="avatar default-avatar">G</div> : renderAvatar(u)}
-                      <div className="user-info">
+                      <div className="user-info" style={{ padding: '10px 0' }}>
                         <div className="user-name">
                           {u.isGroupChat ? u.chatName : u.username}
                           {!u.isGroupChat && u.isAdmin && <span style={{ fontSize: "10px", backgroundColor: "#00a884", color: "white", padding: "2px 5px", borderRadius: "4px", marginLeft: "5px" }}>Admin</span>}
+                          {!u.isGroupChat && u.country && <span style={{ fontSize: "10px", backgroundColor: "#e9edef", color: "#54656f", padding: "2px 5px", borderRadius: "4px", marginLeft: "5px" }}>{u.country}</span>}
                         </div>
                         <div className="user-status">{u.isGroupChat ? `${u.users.length} members` : (u.about || "Available")}</div>
-                        {!u.isGroupChat && !showGroupModal && <button onClick={(e) => handleAddContact(e, u._id)} style={{ marginLeft: "auto", background: "#00a884", color: "white", border: "none", padding: "5px 10px", borderRadius: "3px", cursor: "pointer", fontSize: "12px" }}>Add</button>}
                       </div>
+                      {!u.isGroupChat && !showGroupModal && <button onClick={(e) => handleAddContact(e, u._id)} className="add-contact-btn">Add</button>}
                     </div>
                   ))}
                   {searchResults.length > searchResultLimit && (
                     <button 
-                      onClick={() => setSearchResultLimit(prev => prev + 10)}
+                      onClick={handleLoadMoreResults}
                       style={{ width: "100%", padding: "10px", background: "transparent", border: "none", color: "#00a884", cursor: "pointer", fontWeight: "bold" }}
                     >
                       Load More
@@ -1075,7 +1293,7 @@ export default function Users() {
                 </>
               ) : (
                 <div style={{ padding: "20px", textAlign: "center", color: searchError ? "red" : "var(--text-secondary)" }}>
-                  {searchError || `No users found matching "${searchQuery}"`}
+                  {searchError || `No users found matching "${searchQuery}"${selectedCountry ? ` in ${selectedCountry}` : ''}`}
                 </div>
               )
             )
@@ -1093,7 +1311,11 @@ export default function Users() {
                   <div
                     key={chat._id}
                     className={`user-item ${selectedChat?._id === chat._id ? "active" : ""}`}
-                    onClick={() => setSelectedChat(chat)}
+                    onClick={() => {
+                      setSelectedChat(chat);
+                      setChats(prev => prev.map(c => c._id === chat._id ? { ...c, unreadCount: 0 } : c));
+                    }}
+                    onContextMenu={(e) => handleChatContextMenu(e, chat)}
                   >
                     {chat.isGroupChat ? <div className="avatar default-avatar">G</div> : renderAvatar(getSender(user, chat.users))}
                     <div className="user-info">
@@ -1117,6 +1339,11 @@ export default function Users() {
                         ) : "Start chatting"}
                       </div>
                     </div>
+                    {chat.unreadCount > 0 && (
+                      <div className="unread-badge" style={{ minWidth: '24px', height: '24px', fontSize: '12px' }}>
+                        {chat.unreadCount}
+                      </div>
+                    )}
                   </div>
                 )))}
             </>
@@ -1126,13 +1353,78 @@ export default function Users() {
       </div>
 
       {/* Chat Resizer - Drag to resize chat list */}
-      <div className="chat-resizer" onMouseDown={startResizing}></div>
+      {!isMobile && <div className="chat-resizer" onMouseDown={startResizing}></div>}
+
+      {/* Chat Context Menu */}
+      {chatContextMenu && (
+        <div className="context-menu" style={{ top: chatContextMenu.y, left: chatContextMenu.x, position: "fixed", zIndex: 1000, background: "white", border: "1px solid #ccc", borderRadius: "5px", padding: "5px", boxShadow: "0 2px 5px rgba(0,0,0,0.2)" }}>
+          {chatContextMenu.chat.isGroupChat && (
+            <div onClick={handleLeaveGroupFromMenu} style={{ padding: "8px 12px", cursor: "pointer", color: "#ff4d4d" }}>Leave Group</div>
+          )}
+          <div onClick={() => setChatContextMenu(null)} style={{ padding: "8px 12px", cursor: "pointer" }}>Cancel</div>
+        </div>
+      )}
 
       {/* Chat Window */}
-      {selectedChat ? (
+      {searchQuery || selectedCountry ? (
+        <div className="chat-window" style={{ background: 'var(--bg-color)', overflowY: 'auto', display: isMobile && !(searchQuery || selectedCountry) ? 'none' : 'flex' }}>
+          <div style={{ padding: '40px', maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
+            {isMobile && (
+              <button onClick={handleBackToChatList} style={{ marginBottom: '20px', background: 'none', border: 'none', color: 'var(--primary-green)', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' }}>← Back</button>
+            )}
+            <h2 style={{ marginBottom: '20px', color: 'var(--text-primary)' }}>Search Results</h2>
+            {isSearching ? (
+               <div style={{ display: 'flex', justifyContent: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                 <div className="loading-spinner"></div>
+               </div>
+            ) : searchResults.length > 0 ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
+                {searchResults.map(u => (
+                  <div key={u._id} className="contact-card" style={{ display: 'flex', flexDirection: 'column', gap: '15px', cursor: 'pointer', transition: 'transform 0.2s', background: 'var(--app-bg)', padding: '20px', borderRadius: '12px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}
+                    onClick={() => {
+                        if (u.isGroupChat) {
+                          setSelectedChat(u);
+                          setSearchQuery("");
+                          setSearchResults([]);
+                        } else {
+                          accessChat(u._id);
+                        }
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+                      {u.isGroupChat ? <div className="avatar default-avatar" style={{ width: '60px', height: '60px', fontSize: '24px' }}>G</div> : renderAvatar(u, 60)}
+                      <div style={{ overflow: 'hidden' }}>
+                        <div style={{ fontSize: '18px', fontWeight: '600', color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {u.isGroupChat ? u.chatName : u.username}
+                        </div>
+                        <div style={{ color: 'var(--text-secondary)', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {u.isGroupChat ? `${u.users.length} members` : u.email}
+                        </div>
+                      </div>
+                    </div>
+                    {!u.isGroupChat && (
+                      <button 
+                        onClick={(e) => handleAddContact(e, u._id)}
+                        style={{ marginTop: 'auto', background: 'var(--primary-green)', color: 'white', border: 'none', padding: '10px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
+                      >
+                        Add to Contacts
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', color: 'var(--text-secondary)', marginTop: '40px', fontSize: '18px' }}>
+                No results found for "{searchQuery}"{selectedCountry ? ` in ${selectedCountry}` : ''}
+              </div>
+            )}
+          </div>
+        </div>
+      ) : selectedChat ? (
         <>
-        <div className="chat-window">
+        <div className="chat-window" style={{ display: isMobile && !selectedChat ? 'none' : 'flex' }}>
           <div className="chat-header">
+            {isMobile && <button onClick={handleBackToChatList} style={{ marginRight: '10px', background: 'none', border: 'none', color: 'var(--text-primary)', fontSize: '20px', cursor: 'pointer' }}>←</button>}
             {showMessageSearch ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center" }}>
                 <input autoFocus className="chat-input" placeholder="Search messages..." value={messageSearchQuery} onChange={(e) => setMessageSearchQuery(e.target.value)} style={{ margin: "0 10px" }} />
@@ -1169,6 +1461,15 @@ export default function Users() {
             </div>
               </>
             )}
+            {/* FAQ Section for Support Chat */}
+            {!selectedChat.isGroupChat && getSender(user, selectedChat.users).email === "customercare@gmail.com" && (
+              <div style={{ position: 'absolute', top: '60px', left: 0, right: 0, background: '#e9edef', padding: '10px', zIndex: 5, display: 'flex', gap: '10px', overflowX: 'auto', borderBottom: '1px solid #ccc' }}>
+                <button onClick={() => sendFAQ("Hi")} style={{ padding: '5px 10px', borderRadius: '15px', border: '1px solid #00a884', background: 'white', cursor: 'pointer', whiteSpace: 'nowrap' }}>👋 Hi</button>
+                <button onClick={() => sendFAQ("I forgot my password")} style={{ padding: '5px 10px', borderRadius: '15px', border: '1px solid #00a884', background: 'white', cursor: 'pointer', whiteSpace: 'nowrap' }}>🔑 Password Reset</button>
+                <button onClick={() => sendFAQ("How to delete account?")} style={{ padding: '5px 10px', borderRadius: '15px', border: '1px solid #00a884', background: 'white', cursor: 'pointer', whiteSpace: 'nowrap' }}>🗑️ Delete Account</button>
+                <button onClick={() => sendFAQ("What features do you have?")} style={{ padding: '5px 10px', borderRadius: '15px', border: '1px solid #00a884', background: 'white', cursor: 'pointer', whiteSpace: 'nowrap' }}>✨ Features</button>
+              </div>
+            )}
           </div>
           <div className="chat-messages">
             {filteredMessages.map((msg, idx) => (
@@ -1179,6 +1480,13 @@ export default function Users() {
                 onContextMenu={(e) => handleContextMenu(e, msg)}
                 style={{ cursor: "pointer" }}
               >
+                {/* Show Sender Name in Group Chats */}
+                {selectedChat.isGroupChat && msg.sender._id !== user._id && (
+                  <div style={{ fontSize: "12px", fontWeight: "bold", color: "#d62828", marginBottom: "4px" }}>
+                    {msg.sender.username}
+                  </div>
+                )}
+
                 {msg.isForwarded && (
                   <div style={{ fontSize: '11px', color: '#667781', fontStyle: 'italic', marginBottom: '2px', display: 'flex', alignItems: 'center' }}>
                     <span style={{ marginRight: '4px' }}>↪</span> Forwarded
@@ -1189,16 +1497,27 @@ export default function Users() {
                   <div className="reply-quote" style={{ background: "rgba(0,0,0,0.05)", padding: "5px", borderRadius: "4px", marginBottom: "5px", borderLeft: "4px solid #00a884", fontSize: "12px" }}>
                     <div style={{ fontWeight: "bold", color: "#00a884" }}>{msg.replyTo.sender?.username || "User"}</div>
                     <div style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {msg.replyTo.type === 'image' ? '📷 Photo' : msg.replyTo.type === 'audio' ? '🎤 Voice Message' : msg.replyTo.content}
+                      {msg.replyTo.type === 'image' ? '📷 Photo' : msg.replyTo.type === 'audio' ? '🎤 Voice Message' : msg.replyTo.type === 'video' ? '🎥 Video' :
+                       msg.replyTo.type === 'file' ? '📄 File' :
+                       msg.replyTo.content}
                     </div>
                   </div>
                 )}
                 
                 {msg.isDeleted ? <span style={{fontStyle: "italic", color: "#777"}}>🚫 This message was deleted</span> : 
                  msg.type === 'image' ? (
-                   <img src={`http://localhost:5000/${msg.content}`} alt="shared" style={{maxWidth: "200px", borderRadius: "8px"}} />
+                   <img src={`http://localhost:5001/${msg.content}`} alt="shared" style={{maxWidth: "200px", borderRadius: "8px"}} />
                  ) : msg.type === 'audio' ? (
-                   <audio controls src={`http://localhost:5000/${msg.content}`} style={{ maxWidth: "250px" }} />
+                   <audio controls src={`http://localhost:5001/${msg.content}`} style={{ maxWidth: "250px" }} />
+                 ) : msg.type === 'video' ? (
+                   <video controls src={`http://localhost:5001/${msg.content}`} style={{ maxWidth: "250px", borderRadius: "8px" }} />
+                 ) : msg.type === 'file' ? (
+                    <div style={{display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(0,0,0,0.05)', padding: '10px', borderRadius: '8px'}}>
+                        <span style={{fontSize: '24px'}}>📄</span>
+                        <a href={`http://localhost:5001/${msg.content}`} target="_blank" rel="noopener noreferrer" style={{textDecoration: 'none', color: 'var(--text-primary)', fontWeight: '500'}}>
+                            Download File
+                        </a>
+                    </div>
                  ) : (
                    msg.message || msg.content
                  )}
@@ -1216,24 +1535,18 @@ export default function Users() {
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: "bold", color: "#00a884", fontSize: "13px" }}>Replying to {replyingTo.sender.username}</div>
                   <div style={{ fontSize: "12px", color: "#54656f", marginTop: "2px" }}>
-                    {replyingTo.type === 'image' ? '📷 Photo' : replyingTo.type === 'audio' ? '🎤 Voice Message' : replyingTo.content}
+                    {replyingTo.type === 'image' ? '📷 Photo' : replyingTo.type === 'audio' ? '🎤 Voice Message' : replyingTo.type === 'video' ? '🎥 Video' :
+                     replyingTo.type === 'file' ? '📄 File' :
+                     replyingTo.content}
                   </div>
                 </div>
                 <button onClick={() => setReplyingTo(null)} style={{ border: "none", background: "none", cursor: "pointer", fontWeight: "bold", color: "#00a884", marginLeft: "10px", flexShrink: 0 }}>✕</button>
               </div>
             )}
-            <button onClick={() => fileInputRef.current.click()} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "20px" }} title="Attach File">📎</button>
-            <input type="file" ref={fileInputRef} style={{ display: "none" }} onChange={handleFileUpload} />
-            
+
             <form onSubmit={handleSendMessage} style={{ display: "flex", flex: 1, padding: 0, background: "transparent", boxShadow: "none", gap: "8px" }}>
               <input type="text" ref={textInputRef} className="chat-input" placeholder="Type a message" value={newMessage} onChange={handleTyping} style={{ margin: 0 }} />
-              {newMessage.trim() ? (
-                <button type="submit" className="send-btn" style={{ marginLeft: "10px" }}>➤</button>
-              ) : (
-                <button type="button" onClick={isRecording ? stopRecording : startRecording} className="send-btn" style={{ marginLeft: "10px", background: isRecording ? "red" : "var(--primary-green)" }}>
-                  {isRecording ? "⏹" : "🎤"}
-                </button>
-              )}
+              <button type="submit" className="send-btn" style={{ marginLeft: "10px" }} disabled={!newMessage.trim()}>➤</button>
             </form>
           </div>
           {contextMenu && (
@@ -1252,12 +1565,21 @@ export default function Users() {
             </div>
             <div className="contact-info-content">
               {!selectedChat.isGroupChat ? (
+                <>
                 <div className="contact-info-section">
                   {renderAvatar({...getSender(user, selectedChat.users), avatar: getSender(user, selectedChat.users).avatar?.replace('49', '200')})}
                   <h2 style={{marginTop: '15px', color: 'var(--text-primary)'}}>{getSender(user, selectedChat.users).username}</h2>
                   <p style={{color: 'var(--text-secondary)', marginTop: '5px'}}>{getSender(user, selectedChat.users).email}</p>
                   <p style={{color: 'var(--text-primary)', marginTop: '20px', fontStyle: 'italic'}}>"{getSender(user, selectedChat.users).about || "Available"}"</p>
                 </div>
+                <div style={{ marginTop: '20px', textAlign: 'center' }}>
+                  <button 
+                    onClick={() => handleRemoveUser(getSender(user, selectedChat.users)._id)} 
+                    style={{ background: '#ff4d4d', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
+                    Delete Contact
+                  </button>
+                </div>
+                </>
               ) : (
                 <div className="contact-info-section">
                   <div className="avatar default-avatar" style={{width: '200px', height: '200px', fontSize: '60px', margin: '0 auto 20px'}}>G</div>
@@ -1284,32 +1606,46 @@ export default function Users() {
                   
                   <div style={{marginTop: '20px', borderTop: '1px solid var(--border-color)', paddingTop: '10px'}}>
                     <h4 style={{color: 'var(--text-primary)', marginBottom: '10px'}}>Participants</h4>
-                    <div style={{maxHeight: '300px', overflowY: 'auto'}}>
+                    <input 
+                      type="text" 
+                      placeholder="Search participants..." 
+                      value={participantSearchQuery}
+                      onChange={(e) => setParticipantSearchQuery(e.target.value)}
+                      className="chat-input"
+                      style={{width: '100%', marginBottom: '10px', padding: '8px'}}
+                    />
+                    <div style={{maxHeight: '400px', overflowY: 'auto'}}>
                     {(() => {
                       const isAdmin = selectedChat.groupAdmin && (selectedChat.groupAdmin._id === user._id || selectedChat.groupAdmin === user._id);
-                      return selectedChat.users.map(u => (
-                        <div key={u._id} style={{display: 'flex', alignItems: 'center', padding: '8px 0'}}>
-                          {renderAvatar({...u, avatar: u.avatar || ""})} 
-                          <div style={{marginLeft: '10px', flex: 1}}>
-                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                              <span style={{color: 'var(--text-primary)', fontWeight: '500'}}>{u.username}</span>
-                              {selectedChat.groupAdmin && (selectedChat.groupAdmin._id === u._id || selectedChat.groupAdmin === u._id) && (
-                                <span style={{fontSize: '10px', backgroundColor: '#00a884', color: 'white', padding: '2px 6px', borderRadius: '4px'}}>Admin</span>
-                              )}
+                      const filteredParticipants = selectedChat.users.filter(u => 
+                        u.username.toLowerCase().includes(participantSearchQuery.toLowerCase()) ||
+                        u.email.toLowerCase().includes(participantSearchQuery.toLowerCase())
+                      );
+                      return filteredParticipants.map(u => (
+                        <div key={u._id} style={{display: 'flex', flexDirection: 'column', padding: '10px 0', borderBottom: '1px solid var(--border-color)'}}>
+                          <div style={{display: 'flex', alignItems: 'center', width: '100%'}}>
+                            {renderAvatar({...u, avatar: u.avatar || ""})} 
+                            <div style={{marginLeft: '10px', flex: 1, minWidth: 0}}>
+                              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                <span style={{color: 'var(--text-primary)', fontWeight: '500', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{u.username}</span>
+                                {selectedChat.groupAdmin && (selectedChat.groupAdmin._id === u._id || selectedChat.groupAdmin === u._id) && (
+                                  <span style={{fontSize: '10px', backgroundColor: '#00a884', color: 'white', padding: '2px 6px', borderRadius: '4px', marginLeft: '5px', flexShrink: 0}}>Admin</span>
+                                )}
+                              </div>
+                              <div style={{fontSize: '12px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'}}>{u.email}</div>
                             </div>
-                            <div style={{fontSize: '12px', color: 'var(--text-secondary)'}}>{u.email}</div>
                           </div>
                           {isAdmin && u._id !== user._id && (
-                            <div style={{display: 'flex', gap: '5px', marginLeft: '10px'}}>
+                            <div style={{display: 'flex', gap: '10px', marginTop: '8px', justifyContent: 'flex-end'}}>
                               <button 
                                 onClick={() => handleTransferAdmin(u._id)}
-                                style={{background: '#00a884', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px'}}
+                                style={{background: '#e9edef', color: 'black', border: 'none', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer', fontSize: '11px', fontWeight: '500'}}
                               >
                                 Make Admin
                               </button>
                               <button 
                                 onClick={() => handleRemoveUser(u._id)}
-                                style={{background: '#ff4d4d', color: 'white', border: 'none', borderRadius: '4px', padding: '2px 6px', cursor: 'pointer', fontSize: '10px'}}
+                                style={{background: '#ff4d4d', color: 'white', border: 'none', borderRadius: '4px', padding: '6px 12px', cursor: 'pointer', fontSize: '11px', fontWeight: '500'}}
                               >
                                 Remove
                               </button>
@@ -1375,24 +1711,27 @@ export default function Users() {
           </div>
         )}
         {/* --- Call UI --- */}
-        <div>
-          {stream && <video playsInline muted ref={myVideo} autoPlay style={{ width: "300px" }} />}
-        </div>
-        <div>
-          {callAccepted && !callEnded ?
-            <video playsInline ref={userVideo} autoPlay style={{ width: "300px" }} />
-            : null}
-        </div>
-        <div>
-          {receivingCall && !callAccepted ? (
-            <div>
-              <h1>{caller} is calling...</h1>
-              <button onClick={answerCall}>Answer</button>
+        {(stream || receivingCall) && (
+          <div style={{position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', background: 'rgba(0,0,0,0.9)', zIndex: 3000, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center'}}>
+            <div style={{display: 'flex', gap: '20px', marginBottom: '20px'}}>
+              {stream && <video playsInline muted ref={myVideo} autoPlay style={{ width: "300px", borderRadius: '10px', border: '2px solid white' }} />}
+              {callAccepted && !callEnded && <video playsInline ref={userVideo} autoPlay style={{ width: "300px", borderRadius: '10px', border: '2px solid white' }} />}
             </div>
-          ) : null}
-        </div>
+            
+            {receivingCall && !callAccepted && (
+              <div style={{textAlign: 'center', color: 'white', marginBottom: '20px'}}>
+                <h2>{name || "Someone"} is calling...</h2>
+                <button onClick={answerCall} style={{background: '#25D366', color: 'white', border: 'none', padding: '10px 30px', borderRadius: '20px', fontSize: '18px', cursor: 'pointer', marginRight: '10px'}}>Answer</button>
+              </div>
+            )}
+
+            <button onClick={leaveCall} style={{background: '#ff4d4d', color: 'white', border: 'none', padding: '10px 30px', borderRadius: '20px', fontSize: '18px', cursor: 'pointer'}}>
+              End Call
+            </button>
+          </div>
+        )}
         </>
-      ) : (
+      ) : !isMobile && (
         <div className="chat-window placeholder-window">
           <div className="placeholder-content">
             <img src="/WhatsApp Image 2026-01-26 at 9.13.02 PM.jpeg" alt="Chat Connection" className="placeholder-image" />
@@ -1441,12 +1780,111 @@ export default function Users() {
       {viewingStatusGroup && (
         <div style={{position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'black', zIndex: 2000, display: 'flex', justifyContent: 'center', alignItems: 'center'}}>
            <button onClick={() => setViewingStatusGroup(null)} style={{position: 'absolute', top: '20px', right: '20px', background: 'none', border: 'none', color: 'white', fontSize: '30px', cursor: 'pointer'}}>✕</button>
-           <div style={{backgroundColor: viewingStatusGroup.statuses[0].backgroundColor || '#333', width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column'}}>
-              <h1 style={{color: 'white', textAlign: 'center', padding: '20px', fontSize: '40px'}}>{viewingStatusGroup.statuses[0].content}</h1>
-              <div style={{color: 'rgba(255,255,255,0.7)', marginTop: '20px'}}>{new Date(viewingStatusGroup.statuses[0].createdAt).toLocaleString()}</div>
+           <div style={{backgroundColor: viewingStatusGroup.statuses[0]?.backgroundColor || '#333', width: '100%', height: '100%', display: 'flex', justifyContent: 'center', alignItems: 'center', flexDirection: 'column', position: 'relative'}}>
+              <h1 style={{color: 'white', textAlign: 'center', padding: '20px', fontSize: '40px'}}>{viewingStatusGroup.statuses[0]?.content}</h1>
+              <div style={{color: 'rgba(255,255,255,0.7)', marginTop: '20px'}}>{viewingStatusGroup.statuses[0] && new Date(viewingStatusGroup.statuses[0].createdAt).toLocaleString()}</div>
+              
+              {viewingStatusGroup.user._id === user._id && (
+                <>
+                <div style={{ marginTop: '30px', width: '100%', maxWidth: '300px', background: 'rgba(255,255,255,0.1)', borderRadius: '12px', padding: '15px', backdropFilter: 'blur(10px)' }}>
+                  <h4 style={{ color: 'white', margin: '0 0 10px 0', fontSize: '16px', borderBottom: '1px solid rgba(255,255,255,0.2)', paddingBottom: '8px' }}>
+                    Viewed By ({viewingStatusGroup.statuses[0]?.viewers?.length || 0})
+                  </h4>
+                  <div style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                    {viewingStatusGroup.statuses[0]?.viewers && viewingStatusGroup.statuses[0].viewers.length > 0 ? (
+                      viewingStatusGroup.statuses[0].viewers.map((viewer, vIdx) => (
+                        <div key={viewer._id || vIdx} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                           {renderAvatar(viewer, 30)}
+                           <span style={{ color: 'white', fontSize: '14px' }}>{viewer.username}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: '14px', textAlign: 'center', padding: '10px' }}>No views yet</div>
+                    )}
+                  </div>
+                </div>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); handleDeleteStatus(viewingStatusGroup.statuses[0]?._id); }}
+                  style={{marginTop: '20px', background: 'rgba(255, 0, 0, 0.6)', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '20px', cursor: 'pointer', fontSize: '16px', display: 'flex', alignItems: 'center', gap: '5px'}}
+                >
+                  🗑️ Delete Status
+                </button>
+                </>
+              )}
+
+              {viewingStatusGroup.user._id !== user._id && (
+                  <div style={{position: 'absolute', bottom: '20px', width: '90%', maxWidth: '500px', display: 'flex', gap: '10px'}}>
+                      <input 
+                        value={replyContent}
+                        onChange={(e) => setReplyContent(e.target.value)}
+                        placeholder="Reply..."
+                        style={{flex: 1, padding: '10px', borderRadius: '20px', border: 'none', outline: 'none'}}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleReplyToStatus(); }}
+                        style={{background: '#00a884', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '20px', cursor: 'pointer'}}
+                      >
+                        ➤
+                      </button>
+                  </div>
+              )}
            </div>
         </div>
       )}
+
+      {/* Ticket System Modal */}
+      {showTicketModal && (
+        <div className="ticket-modal-overlay">
+          <div className="ticket-modal">
+            <div className="ticket-header">
+              <h2>Support Tickets</h2>
+              <button onClick={() => setShowTicketModal(false)}>✕</button>
+            </div>
+            <div className="ticket-content">
+              <div className="ticket-list">
+                <div className="new-ticket-form">
+                  <input placeholder="Subject" value={newTicket.subject} onChange={e => setNewTicket({...newTicket, subject: e.target.value})} />
+                  <textarea placeholder="Description" value={newTicket.description} onChange={e => setNewTicket({...newTicket, description: e.target.value})} />
+                  <button onClick={handleCreateTicket}>Create Ticket</button>
+                </div>
+                {tickets.map(ticket => (
+                  <div key={ticket._id} className={`ticket-item ${selectedTicket?._id === ticket._id ? 'active' : ''}`} onClick={() => setSelectedTicket(ticket)}>
+                    <div style={{fontWeight: 'bold'}}>{ticket.subject}</div>
+                    <div style={{fontSize: '12px', color: '#666'}}>{ticket.status} - {new Date(ticket.createdAt).toLocaleDateString()}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="ticket-details">
+                {selectedTicket ? (
+                  <>
+                    <h3>{selectedTicket.subject} <span className={`status-badge ${selectedTicket.status.toLowerCase()}`}>{selectedTicket.status}</span></h3>
+                    <p style={{borderBottom: '1px solid #eee', paddingBottom: '10px'}}>{selectedTicket.description}</p>
+                    <div className="ticket-responses">
+                      {selectedTicket.responses.map((res, idx) => (
+                        <div key={idx} className="ticket-response">
+                          <strong>{res.sender?.username || "Support"}:</strong> {res.message}
+                          <div style={{fontSize: '10px', color: '#999'}}>{new Date(res.createdAt).toLocaleString()}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="ticket-reply-box">
+                      <textarea value={ticketReply} onChange={e => setTicketReply(e.target.value)} placeholder="Write a reply..." />
+                      <button onClick={handleReplyTicket}>Reply</button>
+                    </div>
+                  </>
+                ) : (
+                  <div style={{display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999'}}>Select a ticket to view details</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="app-footer">
+        © 2026 Chat_Z. All rights reserved.
+      </div>
     </div>
   );
 }

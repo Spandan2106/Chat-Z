@@ -1,8 +1,11 @@
+import { useLayoutEffect } from "react";
 import { Routes, Route, Navigate, Outlet } from "react-router-dom";
+import api from "./api/axios";
 import Login from "./pages/Login.jsx";
 import Register from "./pages/Register.jsx";
 import Users from "./pages/Users.jsx";
 import Profile from "./pages/Profile.jsx";
+import ForgotPassword from "./pages/ForgotPassword.jsx";
 import Admin from "./pages/Admin.jsx";
 import Settings from "./pages/Settings.jsx";
 import Notifications from "/src/pages/settings/Notifications.jsx";
@@ -14,7 +17,7 @@ import DeviceLinking from "/src/pages/settings/DeviceLinking.jsx";
 import Header from "./components/Header.jsx";
 import Footer from "./components/Footer.jsx";
 import About from "./pages/About.jsx";
-import Status from "./pages/Status.jsx";
+import Team from "./pages/Team.jsx";
 import VirtualKeyboard from "./components/VirtualKeyboard.jsx";
 
 // Protected Route Wrapper
@@ -26,6 +29,13 @@ const ProtectedRoute = ({ children, user, isAdmin = false }) => {
 
 export default function App() {
   const { user, loading } = useAuth();
+
+  // Use useLayoutEffect to ensure headers are set before child components mount/fetch data
+  useLayoutEffect(() => {
+    if (user && user.token) {
+      api.defaults.headers.common["Authorization"] = `Bearer ${user.token}`;
+    }
+  }, [user]);
 
   if (loading) {
     return (
@@ -42,19 +52,18 @@ export default function App() {
       {/* Public Routes */}
       <Route 
         path="/" 
-        element={user ? <Navigate to="/users" replace /> : <Login />} 
+        element={user ? (user.isAdmin ? <Navigate to="/admin" replace /> : <Navigate to="/users" replace />) : <Login />} 
       />
       <Route 
         path="/register" 
         element={user ? <Navigate to="/users" replace /> : <Register />} 
       />
       <Route 
-        path="/status"
-        element={
-          <ProtectedRoute user={user}><Status /></ProtectedRoute>
-        }
+        path="/forgot-password" 
+        element={user ? <Navigate to="/users" replace /> : <ForgotPassword />} 
       />
       <Route path="/about" element={<About />} />
+      <Route path="/team" element={<Team />} />
 
       {/* Protected Routes */}
       <Route 
