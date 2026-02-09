@@ -1,4 +1,4 @@
-const Message = require("../models/message.model");
+const Message = require("../models/Message.model");
 const Chat = require("../models/Chat.model");
 
 module.exports = (io, socket) => {
@@ -132,4 +132,3 @@ module.exports = (io, socket) => {
     socket.broadcast.emit("user-offline", { userId: socket.handshake.auth?.user?._id });
   });
 };
-
