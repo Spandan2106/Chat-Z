@@ -1538,7 +1538,7 @@ export default function Users() {
           </div>
           <div className="chat-input-area">
             {replyingTo && (
-              <div className="reply-preview" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#e9edef", padding: "10px", borderRadius: "8px", borderLeft: "5px solid #00a884", position: "absolute", bottom: "60px", left: "16px", right: "16px", zIndex: 10 }}>
+              <div className="reply-preview" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#e9edef", padding: "10px", borderRadius: "8px", borderLeft: "5px solid #00a884", position: "absolute", bottom: "100%", left: "16px", right: "16px", zIndex: 10, marginBottom: "5px" }}>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: "bold", color: "#00a884", fontSize: "13px" }}>Replying to {replyingTo.sender.username}</div>
                   <div style={{ fontSize: "12px", color: "#54656f", marginTop: "2px" }}>
