@@ -65,7 +65,8 @@ export default function Profile() {
   const getAvatarUrl = (avatarPath) => {
     if (!avatarPath) return "https://via.placeholder.com/150";
     if (avatarPath.startsWith("http")) return avatarPath;
-    return `http://localhost:5001/${avatarPath}`;
+    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
+    return `${baseUrl.replace(/\/api$/, '')}/${avatarPath}`;
   };
 
   const handleChangePassword = async () => {

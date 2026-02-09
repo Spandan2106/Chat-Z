@@ -163,8 +163,9 @@ export default function Contacts() {
   };
 
   const renderAvatar = (u) => {
+    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
     const avatarUrl = u.avatar 
-      ? u.avatar.startsWith('http') ? u.avatar : `http://localhost:5001/${u.avatar.replace(/\\/g, "/")}`
+      ? u.avatar.startsWith('http') ? u.avatar : `${baseUrl.replace(/\/api$/, '')}/${u.avatar.replace(/\\/g, "/")}`
       : "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg";
     return <img src={avatarUrl} className="avatar" alt={u.username} />;
   };

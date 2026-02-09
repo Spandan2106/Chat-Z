@@ -762,7 +762,8 @@ export default function Users() {
   const renderAvatar = (u, size = 40) => {
     const style = { width: `${size}px`, height: `${size}px`, fontSize: `${Math.max(14, size/2.5)}px` };
     if (u.avatar) {
-        const avatarUrl = u.avatar.startsWith('http') ? u.avatar : `http://localhost:5001/${u.avatar.replace(/\\/g, "/")}`;
+        const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
+        const avatarUrl = u.avatar.startsWith('http') ? u.avatar : `${baseUrl.replace(/\/api$/, '')}/${u.avatar.replace(/\\/g, "/")}`;
         return <img src={avatarUrl} className="avatar" alt={u.username} style={style} />;
     }
     const initials = (u.username || "U").split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase();
@@ -1505,20 +1506,26 @@ export default function Users() {
                 )}
                 
                 {msg.isDeleted ? <span style={{fontStyle: "italic", color: "#777"}}>🚫 This message was deleted</span> : 
-                 msg.type === 'image' ? (
-                   <img src={`http://localhost:5001/${msg.content}`} alt="shared" style={{maxWidth: "200px", borderRadius: "8px"}} />
-                 ) : msg.type === 'audio' ? (
-                   <audio controls src={`http://localhost:5001/${msg.content}`} style={{ maxWidth: "250px" }} />
-                 ) : msg.type === 'video' ? (
-                   <video controls src={`http://localhost:5001/${msg.content}`} style={{ maxWidth: "250px", borderRadius: "8px" }} />
-                 ) : msg.type === 'file' ? (
+                 msg.type === 'image' ? (() => {
+                   const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
+                   return <img src={`${baseUrl.replace(/\/api$/, '')}/${msg.content}`} alt="shared" style={{maxWidth: "200px", borderRadius: "8px"}} />;
+                 })() : msg.type === 'audio' ? (() => {
+                   const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
+                   return <audio controls src={`${baseUrl.replace(/\/api$/, '')}/${msg.content}`} style={{ maxWidth: "250px" }} />;
+                 })() : msg.type === 'video' ? (() => {
+                   const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
+                   return <video controls src={`${baseUrl.replace(/\/api$/, '')}/${msg.content}`} style={{ maxWidth: "250px", borderRadius: "8px" }} />;
+                 })() : msg.type === 'file' ? (() => {
+                    const baseUrl = import.meta.env.VITE_API_URL || "http://localhost:5001";
+                    return (
                     <div style={{display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(0,0,0,0.05)', padding: '10px', borderRadius: '8px'}}>
                         <span style={{fontSize: '24px'}}>📄</span>
-                        <a href={`http://localhost:5001/${msg.content}`} target="_blank" rel="noopener noreferrer" style={{textDecoration: 'none', color: 'var(--text-primary)', fontWeight: '500'}}>
+                        <a href={`${baseUrl.replace(/\/api$/, '')}/${msg.content}`} target="_blank" rel="noopener noreferrer" style={{textDecoration: 'none', color: 'var(--text-primary)', fontWeight: '500'}}>
                             Download File
                         </a>
                     </div>
-                 ) : (
+                    );
+                 })() : (
                    msg.message || msg.content
                  )}
                 <div className="message-meta">
