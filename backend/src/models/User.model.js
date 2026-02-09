@@ -8,7 +8,7 @@ const userSchema = new mongoose.Schema({
   avatar: { type: String, default: "" },
   isAdmin: { type: Boolean, default: false },
   about: { type: String, default: "Hey there! I am using Chat_Z." },
-  country: { type: String, default: "" }, // <--- Make sure this line exists!
+  country: { type: String, default: "" },
   blockedUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   archivedChats: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
   contacts: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
