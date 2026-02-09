@@ -18,7 +18,7 @@ app.use("/uploads", express.static("uploads"));
 const server = http.createServer(app);
 const io = require("socket.io")(server, {
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:3000"], // Specific origins are required when credentials are true
+    origin: ["http://localhost:5173", "http://localhost:3000", process.env.FRONTEND_URL], // Specific origins are required when credentials are true
     methods: ["GET", "POST"],
     credentials: true
   },
