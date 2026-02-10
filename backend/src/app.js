@@ -5,13 +5,15 @@ const cors = require("cors");
 
 const app = express();
 
+const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/\/$/, "") : undefined;
+
 const corsOptions = {
   origin: [
     "http://localhost:5173",
     "http://localhost:3000",
     "https://chat-z.vercel.app", // Your Vercel URL
-    process.env.FRONTEND_URL, // Kept for flexibility
-  ],
+    frontendUrl
+  ].filter(Boolean), // Removes any undefined values
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true,
 };

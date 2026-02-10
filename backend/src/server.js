@@ -15,6 +15,8 @@ connectDB();
 // Serve static files from uploads directory
 app.use("/uploads", express.static("uploads"));
 
+const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/\/$/, "") : undefined;
+
 const server = http.createServer(app);
 const io = require("socket.io")(server, {
   cors: {
@@ -22,8 +24,8 @@ const io = require("socket.io")(server, {
       "http://localhost:5173",
       "http://localhost:3000",
       "https://chat-z.vercel.app", // Your Vercel URL
-      process.env.FRONTEND_URL
-    ],
+      frontendUrl,
+    ].filter(Boolean),
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   },

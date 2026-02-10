@@ -175,36 +175,38 @@ exports.accessChat = async (req, res) => {
 
   if (!userId) return res.sendStatus(400);
 
-  var isChat = await Chat.find({
-    isGroupChat: false,
-    $and: [
-      { users: { $elemMatch: { $eq: req.user._id } } },
-      { users: { $elemMatch: { $eq: userId } } },
-    ],
-  })
-    .populate("users", "-password publicKey")
-    .populate("latestMessage");
-
-  isChat = await User.populate(isChat, {
-    path: "latestMessage.sender",
-    select: "username avatar email publicKey",
-  });
-
-  if (isChat.length > 0) {
-    res.send(isChat[0]);
-  } else {
-    var chatData = {
-      chatName: "sender",
+  try {
+    let isChat = await Chat.find({
       isGroupChat: false,
-      users: [req.user._id, userId],
-    };
-    try {
-      const createdChat = await Chat.create(chatData);
-      const FullChat = await Chat.findOne({ _id: createdChat._id }).populate("users", "-password publicKey");
-      res.status(200).send(FullChat);
-    } catch (error) {
-      res.status(400).send(error.message);
+      $and: [
+        { users: { $elemMatch: { $eq: req.user._id } } },
+        { users: { $elemMatch: { $eq: userId } } },
+      ],
+    })
+      .populate("users", "-password publicKey")
+      .populate({
+        path: "latestMessage",
+        populate: {
+          path: "sender",
+          select: "username avatar email publicKey",
+        },
+      });
+
+    if (isChat.length > 0) {
+      res.send(isChat[0]);
+    } else {
+      const chatData = {
+        chatName: "sender",
+        isGroupChat: false,
+        users: [req.user._id, userId],
+      };
+        const createdChat = await Chat.create(chatData);
+        const FullChat = await Chat.findOne({ _id: createdChat._id }).populate("users", "-password publicKey");
+        res.status(200).send(FullChat);
     }
+  } catch (error) {
+    console.error("Error in accessChat:", error);
+    res.status(500).json({ message: "Server error accessing chat", error: error.message });
   }
 };
 
@@ -275,13 +277,14 @@ exports.fetchChats = async (req, res) => {
     let results = await Chat.find({ users: { $elemMatch: { $eq: req.user._id } } })
       .populate("users", "-password publicKey")
       .populate("groupAdmin", "-password publicKey")
-      .populate("latestMessage")
+      .populate({
+        path: "latestMessage",
+        populate: {
+          path: "sender",
+          select: "username avatar email publicKey",
+        },
+      })
       .sort({ updatedAt: -1 });
-
-    results = await User.populate(results, {
-      path: "latestMessage.sender",
-      select: "username avatar email publicKey",
-    });
 
     // Add unread counts
     const chatsWithCount = await Promise.all(results.map(async (chat) => {
