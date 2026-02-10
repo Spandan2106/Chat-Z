@@ -4,7 +4,6 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
-  publicKey: { type: String },
   avatar: { type: String, default: "" },
   isAdmin: { type: Boolean, default: false },
   about: { type: String, default: "Hey there! I am using Chat_Z." },

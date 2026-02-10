@@ -4,28 +4,6 @@ import { useAuth } from "../context/AuthContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import { socket } from "../socket/socket";
 import { countries } from "../constants.js";
-import JSEncrypt from 'jsencrypt';
-
-// --- E2EE Helpers ---
-const getKeys = () => {
-  const privateKey = localStorage.getItem('privateKey');
-  const publicKey = localStorage.getItem('publicKey');
-  return (privateKey && publicKey) ? { privateKey, publicKey } : null;
-};
-
-const generateAndStoreKeys = () => {
-  const crypt = new JSEncrypt({ default_key_size: 2048 });
-  const privateKey = crypt.getPrivateKey();
-  const publicKey = crypt.getPublicKey();
-  localStorage.setItem('privateKey', privateKey);
-  localStorage.setItem('publicKey', publicKey);
-  return { privateKey, publicKey };
-};
-
-const getOrGenerateKeys = () => {
-  return getKeys() || generateAndStoreKeys();
-};
-// --- End E2EE Helpers ---
 
 
 export default function Users() {
@@ -98,7 +76,6 @@ export default function Users() {
   const [isDeletingStatus, setIsDeletingStatus] = useState(false);
 
   // --- Call State ---
-  const [userKeys, setUserKeys] = useState(null);
   const [stream, setStream] = useState();
   const [receivingCall, setReceivingCall] = useState(false);
   const [caller, setCaller] = useState("");
@@ -148,30 +125,6 @@ export default function Users() {
     document.addEventListener('mouseup', stopDrag);
   }, []);
 
-  // E2EE Key Setup
-  useEffect(() => {
-    const keys = getOrGenerateKeys();
-    setUserKeys(keys);
-    if (user && (!user.publicKey || user.publicKey !== keys.publicKey)) {
-      console.log("Updating public key on server...");
-      api.put('/users/profile', { publicKey: keys.publicKey })
-         .then(res => {
-            setUser(res.data);
-            console.log("Public key updated.");
-         })
-         .catch(err => console.error("Failed to update public key:", err));
-    }
-  }, [user, setUser]);
-
-  const decryptMessageContent = useCallback((content, privateKey) => {
-    if (typeof content !== 'object' || content === null || !privateKey || !user) return "🔒 Encrypted";
-    const encryptedPart = content[user._id];
-    if (!encryptedPart) return "🔒 Not for you";
-    const decrypt = new JSEncrypt();
-    decrypt.setPrivateKey(privateKey);
-    return decrypt.decrypt(encryptedPart) || "Failed to decrypt";
-  }, [user]);
-
   // Socket connection setup
   useEffect(() => {
     if (!user) return;
@@ -213,12 +166,6 @@ export default function Users() {
     if (!socket) return;
 
     const messageHandler = (newMessageReceived) => {
-      // Decrypt if it's a text message with an object content
-      let finalMessage = { ...newMessageReceived };
-      if (userKeys?.privateKey && finalMessage.type === 'text' && typeof finalMessage.content === 'object') {
-          finalMessage.content = decryptMessageContent(finalMessage.content, userKeys.privateKey);
-      }
-
       // Always update the chat list for notifications and ordering
       setChats(prevChats => {
         const chatIndex = prevChats.findIndex(c => c._id === newMessageReceived.chatId._id);
@@ -230,7 +177,7 @@ export default function Users() {
           const isCurrentChat = selectedChatRef.current && selectedChatRef.current._id === chat._id;
           const updatedChat = { 
             ...chat, 
-            latestMessage: finalMessage,
+            latestMessage: newMessageReceived,
             unreadCount: isCurrentChat ? 0 : (chat.unreadCount || 0) + 1
           };
           newChats = [
@@ -251,11 +198,11 @@ export default function Users() {
       });
 
       // If the message is for the currently open chat, update the message view
-      if (selectedChatRef.current && selectedChatRef.current._id === finalMessage.chatId._id) {
+      if (selectedChatRef.current && selectedChatRef.current._id === newMessageReceived.chatId._id) {
         setMessages(prevMessages => {
           // Strict string comparison to prevent duplicates
-          const exists = prevMessages.some(m => String(m._id) === String(finalMessage._id));
-          return exists ? prevMessages : [...prevMessages, finalMessage];
+          const exists = prevMessages.some(m => String(m._id) === String(newMessageReceived._id));
+          return exists ? prevMessages : [...prevMessages, newMessageReceived];
         });
         // If chat is open, mark as read immediately
         socket.emit("read-messages", { chatId: selectedChatRef.current._id });
@@ -397,19 +344,11 @@ export default function Users() {
   // Fetch messages when chat is selected
   useEffect(() => {
     const getMessages = async () => {
-      if (!selectedChat || !userKeys?.privateKey) return;
+      if (!selectedChat) return;
       try {
         const res = await api.get(`/messages/${selectedChat._id}`);
-        console.log("Messages loaded (encrypted):", res.data);
-
-        const decryptedMessages = (res.data || []).map(msg => {
-            if (msg.type === 'text' && typeof msg.content === 'object') {
-                return { ...msg, content: decryptMessageContent(msg.content, userKeys.privateKey) };
-            }
-            return msg;
-        });
-
-        setMessages(decryptedMessages);
+        console.log("Messages loaded:", res.data);
+        setMessages(res.data || []);
         socket.emit("join-chat", selectedChat._id);
         setIsMuted(user?.mutedChats?.includes(selectedChat._id) || false);
       } catch (err) {
@@ -418,7 +357,7 @@ export default function Users() {
       }
     };
     getMessages();
-  }, [selectedChat, user, userKeys, decryptMessageContent]);
+  }, [selectedChat, user]);
 
   // Auto-scroll to latest message
   useEffect(() => {
@@ -527,56 +466,26 @@ export default function Users() {
 
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedChat || isSending || !userKeys) return;
-
-    const recipient = getSender(user, selectedChat.users);
-    if (!recipient || !recipient.publicKey) {
-        alert("Cannot send message: recipient's public key is not available. They may need to log in once to generate it.");
-        return;
-    }
-
+    if (!newMessage.trim() || !selectedChat || isSending) return;
     try {
       setIsSending(true);
-
-      const encrypt = new JSEncrypt();
-      
-      // Encrypt for recipient
-      encrypt.setPublicKey(recipient.publicKey);
-      const encryptedForRecipient = encrypt.encrypt(newMessage);
-
-      // Encrypt for self
-      encrypt.setPublicKey(userKeys.publicKey);
-      const encryptedForSelf = encrypt.encrypt(newMessage);
-
-      if (!encryptedForRecipient || !encryptedForSelf) {
-        throw new Error("Encryption failed. One of the keys might be invalid.");
-      }
-
-      const encryptedContent = {
-        [recipient._id]: encryptedForRecipient,
-        [user._id]: encryptedForSelf
-      };
-
       const res = await api.post(`/messages`, {
-        content: encryptedContent,
+        content: newMessage,
         chatId: selectedChat._id,
-        replyTo: replyingTo?._id,
-        type: 'text'
+        replyTo: replyingTo?._id
       });
-
-      const sentMessageWithDecryptedContent = { ...res.data, content: newMessage };
+      // Emit socket event
       socket.emit("send-message", res.data);
-
+      // Use functional update to prevent stale state issues
       setMessages(prev => {
         if (prev.some(m => String(m._id) === String(res.data._id))) return prev;
-        return [...prev, sentMessageWithDecryptedContent];
+        return [...prev, res.data];
       });
       setNewMessage("");
       setReplyingTo(null);
       socket.emit("stop-typing", { chatId: selectedChat._id });
     } catch (err) {
       console.error("Failed to send message:", err);
-      alert(`Failed to send encrypted message: ${err.message}`);
     } finally {
       setIsSending(false);
     }
@@ -1852,7 +1761,6 @@ export default function Users() {
             <h1 className="placeholder-title">Chat_Z Web</h1>
             <p className="placeholder-subtitle">Send and receive messages without keeping your phone online.<br/>Use Chat_Z on up to 4 linked devices and 1 phone at the same time.</p>
             <div className="placeholder-footer">
-              <p>🔒 End-to-end encrypted</p>
             </div>
           </div>
         </div>

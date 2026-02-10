@@ -48,7 +48,7 @@ exports.getUsers = async (req, res) => {
       };
     }
 
-    let usersQuery = User.find(query).select("-password").select("username email avatar country publicKey");
+    let usersQuery = User.find(query).select("-password").select("username email avatar country");
 
     if (limit > 0) {
       usersQuery = usersQuery.skip(skip).limit(limit);

@@ -4,7 +4,7 @@ const generateToken = require("../utils/generateToken");
 
 exports.register = async (req, res) => {
   try {
-    const { username, email, password, confirmPassword, publicKey, isAdmin } = req.body;
+    const { username, email, password, confirmPassword, isAdmin } = req.body;
 
     if (password !== confirmPassword) {
       return res.status(400).json({ message: "Passwords do not match" });
@@ -21,7 +21,6 @@ exports.register = async (req, res) => {
       username,
       email,
       password: hashed,
-      publicKey,
       isAdmin: finalIsAdmin
     });
 
