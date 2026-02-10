@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const messageSchema = new mongoose.Schema({
   chatId: { type: mongoose.Schema.Types.ObjectId, ref: "Chat" },
   sender: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-  content: String,
+  content: Object,
   type: { type: String, enum: ["text", "image", "file"], default: "text" },
 
   status: {

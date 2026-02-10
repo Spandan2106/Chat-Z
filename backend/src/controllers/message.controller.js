@@ -146,44 +146,6 @@ exports.sendMessage = async (req, res) => {
 
     await Chat.findByIdAndUpdate(req.body.chatId, { latestMessage: message });
     res.json(message);
-
-    // Automated Reply for Customer Care
-    const chat = await Chat.findById(chatId).populate("users");
-    const recipient = chat.users.find(u => u._id.toString() !== req.user._id.toString());
-    
-    if (recipient && recipient.email === "customercare@gmail.com") {
-      const io = req.app.get('io');
-      let replyContent = "Thank you for contacting support. An agent will be with you shortly.";
-      
-      const lowerContent = content.toLowerCase();
-      if (lowerContent.includes("hello") || lowerContent.includes("hi")) {
-        replyContent = "Hello! How can I help you today? You can ask about 'password', 'account', or 'features'.";
-      } else if (lowerContent.includes("password")) {
-        replyContent = "To reset your password, please go to the login page and click 'Forgot Password'.";
-      } else if (lowerContent.includes("account")) {
-        replyContent = "For account issues, please specify if you want to delete or update your profile.";
-      } else if (lowerContent.includes("features")) {
-        replyContent = "We offer chat, groups, status updates, and more! What would you like to know?";
-      }
-
-      setTimeout(async () => {
-        let replyMessage = await Message.create({
-          sender: recipient._id,
-          content: replyContent,
-          chatId: chatId,
-          type: "text"
-        });
-        
-        replyMessage = await replyMessage.populate("sender", "username avatar");
-        replyMessage = await replyMessage.populate("chatId");
-        replyMessage = await User.populate(replyMessage, {
-          path: "chatId.users",
-          select: "username avatar email",
-        });
-        
-        io.to(chatId).emit("message received", replyMessage);
-      }, 1000);
-    }
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
