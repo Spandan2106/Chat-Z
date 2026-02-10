@@ -9,7 +9,8 @@ const corsOptions = {
   origin: [
     "http://localhost:5173",
     "http://localhost:3000",
-    process.env.FRONTEND_URL,
+    "https://chat-z.vercel.app", // Your Vercel URL
+    process.env.FRONTEND_URL, // Kept for flexibility
   ],
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true,
