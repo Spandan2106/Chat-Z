@@ -1,6 +1,5 @@
 const Message = require("../models/Message.model");
 const User = require("../models/User.model");
-const JSEncrypt = require('jsencrypt');
 const Chat = require("../models/Chat.model");
 
 exports.sendMediaMessage = async (req, res) => {
@@ -117,29 +116,20 @@ exports.removeFromGroup = async (req, res) => {
 
 exports.sendMessage = async (req, res) => {
   const { content, chatId, replyTo, isForwarded, type } = req.body;
-  let message = await Message.create({
-    sender: req.user._id,
-    content: encryptWithPublicKey(content),
-    chatId: chatId, 
-    type: type || "text",
-    isForwarded: isForwarded || false
-  });
 
   if (!content || !chatId) {
     return res.sendStatus(400);
   }
 
   try {
-    const messageData = {
+    let message = await Message.create({
       sender: req.user._id,
       content: content,
       chatId: chatId,
       type: type || "text",
-      isForwarded: isForwarded || false
-    };
-
-    if (replyTo) messageData.replyTo = replyTo;
-    let message = await Message.create(messageData);
+      isForwarded: isForwarded || false,
+      replyTo: replyTo || undefined
+    });
 
     message = await message.populate("sender", "username avatar");
     message = await message.populate("chatId");
@@ -205,40 +195,18 @@ exports.allMessages = async (req, res) => {
       chatId: req.params.chatId,
       deletedFor: { $ne: req.user._id } 
     })
-    .then(async (messages) => {
-      const decryptedMessages = await Promise.all(messages.map(async (message) => {
-        message.content = decryptWithPrivateKey(message.content,req.user.privateKey);
-        return message;
-      }))
-      return res.json(decryptedMessages);
-      .populate("sender", "username avatar email")
-      .populate("chatId");
+    .populate("sender", "username avatar email publicKey")
+    .populate("chatId")
+    .populate({
+      path: 'replyTo',
+      populate: { path: 'sender', select: 'username' }
+    });
+
     res.json(messages);
   } catch (error) {
     res.status(400).json({ error: error.message });
   }
 };
-
-const encryptWithPublicKey = (message, publicKey) => {
-  const encrypt = new JSEncrypt();
-  encrypt.setPublicKey(publicKey);
-  const encrypted = encrypt.encrypt(message);
-  return encrypted;
-}
-
-const decryptWithPrivateKey = (encryptedMessage, privateKey) => {
-  const decrypt = new JSEncrypt();
-  decrypt.setPrivateKey(privateKey);
-  const decrypted = decrypt.decrypt(encryptedMessage);
-  return decrypted;
-}
-
-const encryptWithPublicKey = (message, publicKey) => {
-  const encrypt = new JSEncrypt();
-  encrypt.setPublicKey("your_recipient_public_key");
-  const encrypted = encrypt.encrypt(message);
-  return encrypted;
-}
 
 exports.accessChat = async (req, res) => {
   const { userId } = req.body;
