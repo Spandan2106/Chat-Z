@@ -22,7 +22,7 @@ exports.sendMediaMessage = async (req, res) => {
     message = await message.populate("chatId");
     message = await User.populate(message, {
       path: "chatId.users",
-      select: "username avatar email",
+      select: "username avatar email publicKey",
     });
     await Chat.findByIdAndUpdate(chatId, { latestMessage: message });
     res.json(message);
@@ -39,8 +39,8 @@ exports.renameGroup = async (req, res) => {
       { chatName },
       { new: true }
     )
-      .populate("users", "-password")
-      .populate("groupAdmin", "-password");
+      .populate("users", "-password publicKey")
+      .populate("groupAdmin", "-password publicKey");
 
     if (!updatedChat) {
       res.status(404).send("Chat Not Found");
@@ -66,8 +66,8 @@ exports.addToGroup = async (req, res) => {
       { $push: { users: userId } },
       { new: true }
     )
-      .populate("users", "-password")
-      .populate("groupAdmin", "-password");
+      .populate("users", "-password publicKey")
+      .populate("groupAdmin", "-password publicKey");
 
     if (!added) {
       res.status(404).send("Chat Not Found");
@@ -93,8 +93,8 @@ exports.removeFromGroup = async (req, res) => {
       { $pull: { users: userId } },
       { new: true }
     )
-      .populate("users", "-password")
-      .populate("groupAdmin", "-password");
+      .populate("users", "-password publicKey")
+      .populate("groupAdmin", "-password publicKey");
 
     if (!removed) {
       res.status(404).send("Chat Not Found");
@@ -141,7 +141,7 @@ exports.sendMessage = async (req, res) => {
     }
     message = await User.populate(message, {
       path: "chatId.users",
-      select: "username avatar email",
+      select: "username avatar email publicKey",
     });
 
     await Chat.findByIdAndUpdate(req.body.chatId, { latestMessage: message });
@@ -182,12 +182,12 @@ exports.accessChat = async (req, res) => {
       { users: { $elemMatch: { $eq: userId } } },
     ],
   })
-    .populate("users", "-password")
+    .populate("users", "-password publicKey")
     .populate("latestMessage");
 
   isChat = await User.populate(isChat, {
     path: "latestMessage.sender",
-    select: "username avatar email",
+    select: "username avatar email publicKey",
   });
 
   if (isChat.length > 0) {
@@ -200,7 +200,7 @@ exports.accessChat = async (req, res) => {
     };
     try {
       const createdChat = await Chat.create(chatData);
-      const FullChat = await Chat.findOne({ _id: createdChat._id }).populate("users", "-password");
+      const FullChat = await Chat.findOne({ _id: createdChat._id }).populate("users", "-password publicKey");
       res.status(200).send(FullChat);
     } catch (error) {
       res.status(400).send(error.message);
@@ -247,8 +247,8 @@ exports.createGroupChat = async (req, res) => {
     console.log("Group chat created:", groupChat);
 
     const fullGroupChat = await Chat.findOne({ _id: groupChat._id })
-      .populate("users", "-password")
-      .populate("groupAdmin", "-password");
+      .populate("users", "-password publicKey")
+      .populate("groupAdmin", "-password publicKey");
 
     console.log("Full group chat:", fullGroupChat);
 
@@ -273,14 +273,14 @@ exports.fetchChats = async (req, res) => {
     // Use a direct query on the array of user IDs. This is more efficient and
     // reliable for finding chats where the user is a member.
     let results = await Chat.find({ users: { $elemMatch: { $eq: req.user._id } } })
-      .populate("users", "-password")
-      .populate("groupAdmin", "-password")
+      .populate("users", "-password publicKey")
+      .populate("groupAdmin", "-password publicKey")
       .populate("latestMessage")
       .sort({ updatedAt: -1 });
 
     results = await User.populate(results, {
       path: "latestMessage.sender",
-      select: "username avatar email",
+      select: "username avatar email publicKey",
     });
 
     // Add unread counts
@@ -316,8 +316,8 @@ exports.searchGroups = async (req, res) => {
       ...keyword,
       users: { $ne: req.user._id } // Exclude groups user is already in
     })
-    .populate("users", "-password")
-    .populate("groupAdmin", "-password");
+    .populate("users", "-password publicKey")
+    .populate("groupAdmin", "-password publicKey");
 
     res.json(groups);
   } catch (error) {
@@ -447,8 +447,8 @@ exports.transferGroupAdmin = async (req, res) => {
       { groupAdmin: userId },
       { new: true }
     )
-      .populate("users", "-password")
-      .populate("groupAdmin", "-password");
+      .populate("users", "-password publicKey")
+      .populate("groupAdmin", "-password publicKey");
 
     if (!updatedChat) {
       res.status(404).send("Chat Not Found");

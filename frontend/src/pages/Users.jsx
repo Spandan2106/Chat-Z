@@ -230,7 +230,6 @@ export default function Users() {
           const isCurrentChat = selectedChatRef.current && selectedChatRef.current._id === chat._id;
           const updatedChat = { 
             ...chat, 
-            latestMessage: newMessageReceived,
             latestMessage: finalMessage,
             unreadCount: isCurrentChat ? 0 : (chat.unreadCount || 0) + 1
           };
@@ -1190,7 +1189,6 @@ export default function Users() {
     setCallEnded(false);
   };
 
-  const filteredMessages = messages.filter(msg => (msg.message || msg.content || "").toLowerCase().includes(messageSearchQuery.toLowerCase()));
   const filteredMessages = messages.filter(msg => {
     const content = msg.message || msg.content || "";
     // Ensure content is a string before calling toLowerCase to prevent crashes
@@ -1433,9 +1431,20 @@ export default function Users() {
                         )}
                       </div>
                       <div className="user-status">
-                        {chat.latestMessage ? (
-                          <span>{(chat.latestMessage.content || chat.latestMessage.message || "").substring(0, 20)}...</span>
-                        ) : "Start chatting"}
+                        {(() => {
+                          const msg = chat.latestMessage;
+                          if (!msg) return "Start chatting";
+                          if (msg.isDeleted) return "🚫 This message was deleted";
+                          if (msg.type === 'image') return "📷 Photo";
+                          if (msg.type === 'video') return "🎥 Video";
+                          if (msg.type === 'audio') return "🎤 Voice Message";
+                          if (msg.type === 'file') return "📄 File";
+                          const content = msg.content || msg.message || "";
+                          if (typeof content === 'string') {
+                            return content.substring(0, 25) + (content.length > 25 ? '...' : '');
+                          }
+                          return "🔒 Encrypted Message";
+                        })()}
                       </div>
                     </div>
                     {chat.unreadCount > 0 && (
