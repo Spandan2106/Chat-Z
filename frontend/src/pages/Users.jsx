@@ -231,6 +231,7 @@ export default function Users() {
           const updatedChat = { 
             ...chat, 
             latestMessage: newMessageReceived,
+            latestMessage: finalMessage,
             unreadCount: isCurrentChat ? 0 : (chat.unreadCount || 0) + 1
           };
           newChats = [
@@ -1190,6 +1191,12 @@ export default function Users() {
   };
 
   const filteredMessages = messages.filter(msg => (msg.message || msg.content || "").toLowerCase().includes(messageSearchQuery.toLowerCase()));
+  const filteredMessages = messages.filter(msg => {
+    const content = msg.message || msg.content || "";
+    // Ensure content is a string before calling toLowerCase to prevent crashes
+    // from encrypted content objects that may not have been decrypted yet.
+    return typeof content === 'string' && content.toLowerCase().includes(messageSearchQuery.toLowerCase());
+  });
 
   const filteredChats = chats.filter(chat => {
     if (filterType === "groups") return chat.isGroupChat;
