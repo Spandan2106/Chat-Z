@@ -1,5 +1,6 @@
 const bcrypt = require("bcrypt");
 const User = require("../models/User.model");
+const JSEncrypt = require('jsencrypt');
 const generateToken = require("../utils/generateToken");
 
 exports.register = async (req, res) => {
