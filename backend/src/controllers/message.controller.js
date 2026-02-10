@@ -291,7 +291,7 @@ exports.fetchChats = async (req, res) => {
       const unreadCount = await Message.countDocuments({
         chatId: chat._id,
         sender: { $ne: req.user._id },
-        readBy: { $ne: req.user._id }
+        readBy: { $nin: [req.user._id] }
       });
       return { ...chat.toObject(), unreadCount };
     }));

@@ -4,7 +4,7 @@ const messageSchema = new mongoose.Schema({
   chatId: { type: mongoose.Schema.Types.ObjectId, ref: "Chat" },
   sender: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   content: Object,
-  type: { type: String, enum: ["text", "image", "file"], default: "text" },
+  type: { type: String, enum: ["text", "image", "file", "audio", "video"], default: "text" },
 
   status: {
     type: String,
@@ -13,7 +13,10 @@ const messageSchema = new mongoose.Schema({
   },
 
   replyTo: { type: mongoose.Schema.Types.ObjectId, ref: "Message" },
-  deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }]
+  deletedFor: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  readBy: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+  isDeleted: { type: Boolean, default: false },
+  isForwarded: { type: Boolean, default: false },
 }, { timestamps: true });
 
 module.exports = mongoose.models.Message || mongoose.model("Message", messageSchema);
