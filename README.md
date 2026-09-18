@@ -40,6 +40,7 @@ Chat_Z is a revolutionary real-time messaging platform designed to connect peopl
 *   **Video/Audio:** Simple-Peer (WebRTC)
 *   **Styling:** CSS3, Responsive Flexbox/Grid
 
+
 ## 📦 Installation
 
 1.  **Clone the repository:**
