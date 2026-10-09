@@ -93,6 +93,39 @@ Chat_Z is a revolutionary real-time messaging platform designed to connect peopl
 3.  Set Framework Preset to `Vite`.
 4.  Add `VITE_API_URL` environment variable pointing to your deployed backend URL.
 
+## 📊 Performance & Concurrency Testing
+
+Tested Socket.IO connection handling using **Grafana k6**, progressively increasing the load from 10 to 5,000 virtual users (VUs).
+
+### Load Test Results
+
+| Virtual Users (VUs) | p95 Connection Time | Connection Failures |
+|---:|---:|---:|
+| 10 | 38 ms | 0% |
+| 50 | 86 ms | 0% |
+| 150 | 748 ms | 0% |
+| 250 | 1.89 s | 0% |
+| 300 | 2.24 s | 3.00% |
+| 500 | 2.27 s | 43.40% |
+| 1,000 | 5.33 s | 55.30% |
+| 5,000 | 13.81 s | 86.94% |
+
+### Key Observations
+
+- **Up to 250 VUs:** No connection failures observed.
+- **At 250 VUs:** p95 connection-establishment time exceeded the 1-second target.
+- **At 300 VUs:** Connection failures first appeared, affecting 3% of attempts.
+- **At 5,000 VUs:** Connection failure rate reached 86.94%.
+
+### Testing Methodology
+
+- Simulated concurrent virtual users using Grafana k6.
+- Measured Socket.IO connection-establishment time and connection failures.
+- Increased load progressively to identify latency and reliability degradation.
+- Maintained connections for approximately 20 seconds per test iteration.
+
+**Note:** Results reflect the tested local environment and workload. This test evaluates connection establishment and concurrency, not message throughput or end-to-end message-delivery latency.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please read our CONTRIBUTING.md for details on our code of conduct, and the process for submitting pull requests.
