@@ -1,72 +1,209 @@
 const path = require("path");
-require("dotenv").config({ path: path.join(__dirname, "../.env") });
+
+require("dotenv").config({
+  path: path.join(__dirname, "../.env")
+});
+
 const http = require("http");
+const express = require("express");
+
 const app = require("./app");
 const connectDB = require("./config/db");
-const express = require("express");
+
+
+// ==========================================
+// CHECK ENVIRONMENT VARIABLES
+// ==========================================
 
 if (!process.env.MONGO_URI) {
   console.error("Error: MONGO_URI is not defined in .env file");
   process.exit(1);
 }
 
+
+// ==========================================
+// CONNECT DATABASE
+// ==========================================
+
 connectDB();
 
-// Serve static files from uploads directory
-app.use("/uploads", express.static("uploads"));
 
-const frontendUrl = process.env.FRONTEND_URL ? process.env.FRONTEND_URL.replace(/\/$/, "") : undefined;
+// ==========================================
+// STATIC FILES
+// ==========================================
+
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "../uploads"))
+);
+
+
+// ==========================================
+// FRONTEND URL
+// ==========================================
+
+const frontendUrl = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.replace(/\/$/, "")
+  : undefined;
+
+
+// ==========================================
+// CREATE HTTP SERVER
+// ==========================================
 
 const server = http.createServer(app);
-const io = require("socket.io")(server, {
+
+
+// ==========================================
+// SOCKET.IO
+// ==========================================
+
+const { Server } = require("socket.io");
+
+const io = new Server(server, {
   cors: {
     origin: [
       "http://localhost:5173",
       "http://localhost:3000",
-      "https://chat-z.vercel.app", // Your Vercel URL
-      frontendUrl,
+      "https://chat-z.vercel.app",
+      frontendUrl
     ].filter(Boolean),
-    methods: ["GET", "POST", "PUT", "DELETE"],
+
+    methods: [
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE"
+    ],
+
     credentials: true
   },
-  transports: ["websocket", "polling"],
+
+  transports: [
+    "websocket",
+    "polling"
+  ],
+
   reconnectionDelay: 1000,
+
   reconnection: true,
+
   reconnectionAttempts: 10
 });
 
-// Load socket handlers ONCE (outside the connection handler)
-const messageSocketHandler = require("./sockets/message.socket");
-const typingSocketHandler = require("./sockets/typing.socket");
-const chatSocketHandler = require("./sockets/chat.socket");
 
-// Initialize socket handlers
+// ==========================================
+// SOCKET HANDLERS
+// ==========================================
+
+const messageSocketHandler =
+  require("./sockets/message.socket");
+
+const typingSocketHandler =
+  require("./sockets/typing.socket");
+
+const chatSocketHandler =
+  require("./sockets/chat.socket");
+
+
+// ==========================================
+// SOCKET.IO CONNECTION
+// ==========================================
+
 io.on("connection", (socket) => {
-  console.log("New client connected:", socket.id);
 
-  // Setup socket handlers (each handler is a function that receives io and socket)
+  console.log(
+    "New client connected:",
+    socket.id
+  );
+
+
+  // ----------------------------------------
+  // Message events
+  // ----------------------------------------
+
   messageSocketHandler(io, socket);
+
+
+  // ----------------------------------------
+  // Typing events
+  // ----------------------------------------
+
   typingSocketHandler(io, socket);
+
+
+  // ----------------------------------------
+  // Chat / user events
+  // ----------------------------------------
+
   chatSocketHandler(io, socket);
 
+
+  // ----------------------------------------
+  // Video call
+  // ----------------------------------------
+
   socket.on("callUser", (data) => {
-    io.to(data.userToCall).emit("callUser", { signal: data.signalData, from: data.from, name: data.name });
+
+    io.to(data.userToCall).emit(
+      "callUser",
+      {
+        signal: data.signalData,
+        from: data.from,
+        name: data.name
+      }
+    );
+
   });
+
 
   socket.on("answerCall", (data) => {
-    io.to(data.to).emit("callAccepted", data.signal);
+
+    io.to(data.to).emit(
+      "callAccepted",
+      data.signal
+    );
+
   });
 
-  // Handle disconnect
+
+  // ----------------------------------------
+  // Disconnect
+  // ----------------------------------------
+
   socket.on("disconnect", () => {
-    console.log("Client disconnected:", socket.id);
+
+    console.log(
+      "Client disconnected:",
+      socket.id
+    );
+
   });
+
 });
 
-// Make io accessible to our router
-app.set('io', io);
 
-server.listen(5001, () => {
-  console.log("Server running on port", 5001);
-  console.log("Server is running at: http://localhost:" + 5001);
+// ==========================================
+// MAKE SOCKET.IO AVAILABLE TO EXPRESS
+// ==========================================
+
+app.set("io", io);
+
+
+// ==========================================
+// START SERVER
+// ==========================================
+
+const PORT = 5001;
+
+server.listen(PORT, () => {
+
+  console.log(
+    `Server running on port ${PORT}`
+  );
+
+  console.log(
+    `Server is running at: http://localhost:${PORT}`
+  );
+
 });
